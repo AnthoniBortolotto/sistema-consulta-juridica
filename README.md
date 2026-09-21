@@ -1,1 +1,192 @@
-# sistema-consulta-juridica
+# Consulta Jurídica com RAG
+
+Busca e resposta fundamentada sobre legislação brasileira, com **citação verificável** —
+cada afirmação da resposta carrega o trecho literal e o dispositivo de onde veio.
+
+> **Status:** em desenvolvimento. O desenho está fechado e documentado abaixo; a
+> implementação está em andamento. Seções marcadas com 🚧 ainda não têm código.
+
+---
+
+## O problema
+
+Um LLM genérico perguntado sobre direito brasileiro inventa citações com fluência: cita
+artigo que não existe, atribui texto à norma errada ou responde com dispositivo já
+revogado. Em pesquisa jurídica isso não é um erro cosmético — é o modo de falha que
+inviabiliza a ferramenta, porque verificar a citação custa o mesmo que ter pesquisado à mão.
+
+Este projeto responde apenas a partir de texto legal recuperado, e devolve junto o caminho
+de volta até a fonte: o trecho literal, a norma, o dispositivo e a data de vigência
+considerada.
+
+---
+
+## Como funciona
+
+```
+pergunta + filtros (vigência, norma)
+      │
+      ├──► busca densa    bge-m3        ──┐
+      │                                    ├──► RRF ──► rerank ──► top-8
+      ├──► busca esparsa  BM25          ──┘          bge-reranker-v2-m3
+      │
+      │    (filtro de vigência aplicado na travessia do índice)
+      │
+      └──► Claude, com os trechos como blocos `document` + citations
+                  │
+                  └──► resposta + citações rastreáveis até o dispositivo
+```
+
+---
+
+## Decisões de arquitetura
+
+A parte interessante do projeto não é chamar um LLM — é o que vem antes.
+
+### Chunking estrutural, não janela fixa
+
+Texto jurídico tem hierarquia explícita: Título → Capítulo → Seção → Artigo → Parágrafo →
+Inciso → Alínea. Partir por janela de N tokens corta artigos no meio e separa o inciso do
+caput que lhe dá sentido.
+
+Aqui a unidade de indexação é o **dispositivo**, e cada chunk carrega a hierarquia inteira,
+a norma de origem e o intervalo de vigência. Um inciso recuperado é expandido para o artigo
+completo antes de ir ao modelo, porque inciso isolado frequentemente é ininteligível.
+
+### Busca híbrida, não só vetorial
+
+As duas consultas abaixo são igualmente comuns e exigem mecanismos diferentes:
+
+| Consulta | Natureza |
+|---|---|
+| `art. 5º, LXXVIII` | léxica pura — embeddings erram em numeração |
+| `responsabilidade objetiva do Estado` | semântica |
+
+Busca densa e esparsa rodam juntas e são fundidas por Reciprocal Rank Fusion. RRF usa a
+*posição* de cada candidato, não o score bruto, porque similaridade de cosseno e score BM25
+não compartilham escala calibrada. Um reranker cross-encoder reordena o top-50 para top-8.
+
+### Vigência como campo de primeira classe
+
+Responder com norma revogada como se fosse vigente é o pior defeito possível no domínio.
+Todo chunk carrega `vigencia_inicio` e `revogado_em`, e toda consulta filtra por uma data de
+referência — que é parâmetro da API, não `now()` implícito, para permitir consulta sobre o
+direito vigente à época de um fato.
+
+### Fonte da verdade relacional, índice derivado
+
+O corpus canônico — árvore de dispositivos, vigências e remissões — vive em SQLite. O Qdrant
+é **índice derivado e reconstruível**, não banco primário.
+
+A razão é concreta: bancos vetoriais não têm join, então expansão inciso→artigo, hierarquia
+e remissões precisariam ser desnormalizadas no payload. Quando uma emenda altera um artigo,
+a desnormalização exige reescrever todos os chunks filhos sem transação. Com índice
+derivado, reingestão é rebuild — não edição de estado mutável.
+
+*Tradeoff honesto:* isso custa um processo de build e duas cópias do texto. Em troca, a
+correção da consistência é estrutural em vez de disciplinar.
+
+### Citação garantida pela API, não pedida por prompt
+
+Os trechos recuperados são enviados como blocos `document` com citations habilitadas na
+Messages API. A resposta volta particionada, e os blocos citados carregam o `cited_text` e
+os índices exatos do documento de origem.
+
+A alternativa comum — instruir o modelo a citar e confiar na obediência — falha
+silenciosamente e de forma difícil de detectar em escala.
+
+### Sem framework de orquestração na v1
+
+O pipeline é curto e determinístico: recuperar, reordenar, montar o prompt, chamar, ler
+citações. Uma camada de abstração sobre isso esconderia justamente o que precisa ser
+inspecionado durante a depuração — o prompt exato que foi enviado.
+
+---
+
+## Stack
+
+| Camada | Escolha |
+|---|---|
+| Linguagem | Python |
+| API | FastAPI |
+| Fonte da verdade | SQLite |
+| Índice vetorial | Qdrant — vetores nomeados denso + esparso |
+| Embeddings | `BAAI/bge-m3` (local) |
+| Reranker | `BAAI/bge-reranker-v2-m3` (local) |
+| Geração | Claude via SDK `anthropic`, com citations |
+| Front de teste | Vue 3 por CDN, servido como estático |
+
+Embeddings e reranking rodam localmente — indexar o corpus inteiro não custa nada em API.
+
+---
+
+## Corpus
+
+| Fonte | O que entra |
+|---|---|
+| [Planalto](https://www.planalto.gov.br/) / [LexML](https://www.lexml.gov.br/) | CF/88 e códigos (CC, CPC, CP, CLT, CDC) |
+| STF / STJ | Súmulas e súmulas vinculantes |
+| [Dados abertos do STJ](https://dadosabertos.web.stj.jus.br/) | Recorte curado de acórdãos |
+
+**Sobre jurisprudência:** não existe API pública de busca de inteiro teor do STF ou do STJ.
+A [API do DataJud](https://www.cnj.jus.br/sistemas/datajud/api-publica/) (CNJ) expõe
+metadados de processos, não o texto das decisões, e os portais de dados abertos publicam
+dumps, não busca. Por isso o escopo de jurisprudência é deliberadamente estreito: súmulas,
+que são curtas e canônicas, mais um recorte de acórdãos. Cobertura ampla é problema de
+aquisição de dados, não de recuperação.
+
+---
+
+## Avaliação 🚧
+
+Um golden set de perguntas com o dispositivo correto anotado à mão, medindo:
+
+- **`recall@k`** da recuperação — o dispositivo certo está entre os k recuperados?
+- **acurácia de citação** — as citações da resposta apontam para o dispositivo correto?
+- **taxa de abstenção** — o sistema diz "não encontrei" quando deveria?
+
+A última importa tanto quanto as outras: um sistema jurídico que sempre responde é pior
+que um que admite lacuna.
+
+*Números a preencher conforme o eval for executado.*
+
+---
+
+## Rodando localmente 🚧
+
+```bash
+pip install -r requirements.txt
+docker compose up -d          # Qdrant
+python -m ingest              # constrói SQLite + índice
+uvicorn app.main:app --reload # API + front em http://localhost:8000
+```
+
+Requer `ANTHROPIC_API_KEY` no ambiente para a etapa de geração. A indexação roda sem chave.
+
+---
+
+## Limitações
+
+- **Não é consulta jurídica.** É ferramenta de pesquisa. As respostas precisam ser
+  conferidas contra a fonte oficial antes de qualquer uso profissional.
+- Cobertura de jurisprudência é estreita, pelos motivos descritos acima.
+- Direito sumulado e entendimento consolidado mudam; o corpus é um retrato datado.
+- Sem cobertura de legislação estadual ou municipal.
+
+---
+
+## Roadmap
+
+- [ ] Ingestão com parser estrutural (CF/88 primeiro)
+- [ ] Índice híbrido e busca com filtro de vigência
+- [ ] API de consulta com citations
+- [ ] Front de teste com painel de recuperação
+- [ ] Golden set e eval
+- [ ] Expansão por remissões (1 hop)
+- [ ] Ampliação do corpus de jurisprudência
+
+---
+
+## Licença
+
+MIT — ver [LICENSE](LICENSE).

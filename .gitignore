@@ -1,0 +1,48 @@
+# --- Segredos ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Notas locais e temporárias ---
+# NOTAS-DESIGN.local.md e afins
+*.local.md
+
+# --- Artefatos de build da ingestão ---
+# O SQLite é fonte da verdade mas é DERIVADO: reconstruído pela ingestão.
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# --- Corpus bruto e processado ---
+# Downloads do Planalto/LexML/STJ. Grandes e reconstruíveis.
+data/raw/
+data/processed/
+
+# --- Storage local do Qdrant ---
+qdrant_storage/
+
+# --- Caches ---
+# Modelos do sentence-transformers (bge-m3 ~2GB) e cache de respostas do LLM
+.cache/
+models/
+
+# --- Node ---
+# O front é Vue por CDN, sem build. Entrada defensiva.
+node_modules/
+
+# --- SO e editor ---
+.DS_Store
+Thumbs.db
+.idea/
