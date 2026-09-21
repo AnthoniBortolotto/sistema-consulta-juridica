@@ -1,0 +1,59 @@
+"""Estágios re-executáveis da ingestão.
+
+Três estágios separados porque falham por motivos diferentes e têm custos diferentes:
+baixar depende de rede, ingerir depende do parser, reindexar depende dos modelos.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from ..embedding import Encoder
+from .chunking import Estrategia
+from .fontes import Fonte
+from .indexer import RelatorioIndexacao
+
+if TYPE_CHECKING:
+    from qdrant_client import QdrantClient
+
+
+@dataclass
+class RelatorioIngestao:
+    normas: int = 0
+    dispositivos: int = 0
+    remissoes: int = 0
+    avisos: list[str] | None = None
+
+
+def baixar(
+    fontes: Sequence[Fonte], destino: Path, *, limite: int | None = None
+) -> list[Path]:
+    """Estágio 1: fontes -> `data/raw/`. Devolve os caminhos salvos."""
+    raise NotImplementedError
+
+
+def ingerir(caminhos: Sequence[Path], conn: sqlite3.Connection) -> RelatorioIngestao:
+    """Estágio 2: brutos -> parse -> SQLite. Não toca no Qdrant."""
+    raise NotImplementedError
+
+
+def reindexar(
+    conn: sqlite3.Connection,
+    client: QdrantClient,
+    encoder: Encoder,
+    estrategia: Estrategia,
+    *,
+    colecao: str,
+    normas: Sequence[str] | None = None,
+) -> RelatorioIndexacao:
+    """Estágio 3: SQLite -> Qdrant.
+
+    A assinatura é a prova de que o índice é derivado: não recebe `Path` nem `Fonte`. Se um
+    dia precisar de qualquer um dos dois, a propriedade "o Qdrant é reconstruível a partir
+    do SQLite" foi quebrada.
+    """
+    raise NotImplementedError

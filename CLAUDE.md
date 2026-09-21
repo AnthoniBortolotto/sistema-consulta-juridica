@@ -52,7 +52,7 @@ assinatura vs API key.
 
 ## Armadilhas do domínio
 
-Estas quatro são a diferença entre o projeto funcionar e parecer funcionar:
+Estas seis são a diferença entre o projeto funcionar e parecer funcionar:
 
 1. **Chunking é estrutural, nunca por janela de tokens.** A unidade é o dispositivo
    (artigo/parágrafo/inciso), com a hierarquia inteira nos metadados. Não usar splitter
@@ -68,6 +68,31 @@ Estas quatro são a diferença entre o projeto funcionar e parecer funcionar:
 4. **Qdrant não tem join.** Expansão inciso→artigo, hierarquia e remissões se resolvem no
    SQLite, não no payload. Não desnormalizar texto de artigo dentro dos chunks filhos:
    quando uma emenda altera o artigo, isso vira inconsistência sem transação.
+
+5. **A vigência precisa ser reaplicada na expansão.** O filtro do Qdrant exclui o inciso
+   revogado, mas a expansão lê o artigo inteiro do SQLite e traz os irmãos revogados junto.
+   Por isso `expandir()` e `subarvore()` recebem `data_referencia` obrigatório — é o bug
+   mais provável do sistema, e ele não levanta exceção.
+
+6. **Sentinela de vigência no payload.** `range(gt=ref)` no Qdrant exclui pontos sem o
+   campo, então um dispositivo vigente (`revogado_em = None`) sumiria do resultado. Datas
+   vão para o payload como `date.toordinal()`, e o não revogado carrega
+   `vectorstore.SENTINELA_VIGENTE`. Nunca gravar `None` nesse campo.
+
+---
+
+## Convenções de código
+
+- **Nomenclatura:** domínio jurídico em português (`dispositivo`, `vigencia`, `remissao`,
+  `busca`), infraestrutura em inglês (`store`, `indexer`, `rerank`, `backend`). A regra é
+  deliberada; sem ela a mistura vira arbitrária.
+- **Tudo síncrono.** qdrant-client, fastembed, cross-encoder e subprocess são síncronos e
+  CPU-bound. Endpoints do FastAPI são declarados `def`, nunca `async def` — o framework os
+  despacha no threadpool. Tornar o `LLMBackend` assíncrono é refactor em cascata.
+- **Nada constrói as próprias dependências.** Encoder, reranker, cliente Qdrant e backend
+  nascem em `service.construir_servico`, o composition root. Os modelos somam alguns GB e
+  segundos de carga: construir por requisição inviabiliza a API.
+- **`Settings` só é lido na borda** (API, CLIs) e em `service.py`.
 
 ---
 

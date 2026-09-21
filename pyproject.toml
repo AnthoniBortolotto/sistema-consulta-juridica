@@ -1,0 +1,52 @@
+[project]
+name = "consulta-juridica"
+version = "0.1.0"
+description = "RAG sobre legislação brasileira com citação verificável"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    # Índice vetorial — manter na mesma minor do servidor Qdrant
+    "qdrant-client>=1.16,<2",
+    # Perna esparsa: BM25 com stemming português
+    "fastembed>=0.5",
+    # Denso (bge-m3) e reranker cross-encoder
+    "sentence-transformers>=3.3",
+    # Geração
+    "anthropic>=1.0",
+    # Ingestão
+    "httpx>=0.28",
+    "lxml>=5.3",
+    "beautifulsoup4>=4.12",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "pytest>=8.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/consulta_juridica"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

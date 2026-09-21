@@ -155,13 +155,32 @@ que um que admite lacuna.
 ## Rodando localmente 🚧
 
 ```bash
-pip install -r requirements.txt
-docker compose up -d          # Qdrant
-python -m ingest              # constrói SQLite + índice
-uvicorn app.main:app --reload # API + front em http://localhost:8000
+uv sync
+cp .env.example .env     # preencha ANTHROPIC_API_KEY se for gerar respostas
+docker compose up -d     # Qdrant local
 ```
 
-Requer `ANTHROPIC_API_KEY` no ambiente para a etapa de geração. A indexação roda sem chave.
+Ingestão, em três estágios independentes — baixar depende de rede, parsear não, indexar
+carrega modelos:
+
+```bash
+uv run python -m consulta_juridica.ingest baixar
+uv run python -m consulta_juridica.ingest ingerir     # bruto -> SQLite
+uv run python -m consulta_juridica.ingest reindexar   # SQLite -> Qdrant
+```
+
+Consulta:
+
+```bash
+# inspeciona a recuperação sem gastar token
+uv run python -m consulta_juridica.retrieval "prazo para contestação" --data 2026-09-20
+
+# API + front em http://localhost:8000
+uv run uvicorn consulta_juridica.api.app:criar_app --factory --reload
+```
+
+`ANTHROPIC_API_KEY` só é necessária para a etapa de geração. Ingestão, indexação e
+avaliação de recuperação rodam sem chave — os modelos de embedding e de rerank são locais.
 
 ---
 
