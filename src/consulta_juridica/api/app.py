@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import Depends, FastAPI
 
@@ -16,6 +17,10 @@ from ..config import Settings
 from ..service import Servico
 from .deps import obter_servico
 from .schemas import ConsultaRequest, RespostaOut
+
+# `Annotated` em vez de `Depends` no default: é o idioma atual do FastAPI e evita
+# chamada de função em argumento default (ruff B008) sem desligar a regra.
+ServicoDep = Annotated[Servico, Depends(obter_servico)]
 
 
 @asynccontextmanager
@@ -34,8 +39,6 @@ def criar_app(cfg: Settings | None = None) -> FastAPI:
     raise NotImplementedError
 
 
-def consultar(
-    req: ConsultaRequest, servico: Servico = Depends(obter_servico)
-) -> RespostaOut:
+def consultar(req: ConsultaRequest, servico: ServicoDep) -> RespostaOut:
     """POST /v1/consultas."""
     raise NotImplementedError
