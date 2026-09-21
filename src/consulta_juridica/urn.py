@@ -45,6 +45,12 @@ SEPARADOR_FRAGMENTO: Final = "!"
 SEPARADOR_SEGMENTO: Final = "_"
 SEPARADOR_CAMINHO: Final = "/"
 
+#: Sufixo de redação superada: `art6@1` é a 1ª redação do art. 6º, `art6` é a vigente.
+#: Índice ordinal e não ano, porque 5 artigos da CF/88 têm duas redações superadas no
+#: mesmo ano (art. 111 tem duas de 2016 e duas de 2022) e 57 redações não trazem ano
+#: extraível da nota. Ver `ingest.parser`.
+SEPARADOR_VERSAO: Final = "@"
+
 #: Abreviação de cada nível. Fonte única: o parser monta o caminho com estas, e
 #: `queries.subarvore` casa prefixo contra ele.
 ABREV: Final[dict[TipoDispositivo, str]] = {
@@ -87,7 +93,7 @@ _RE_SEGMENTO: Final = re.compile(
     r"^(?:"
     rf"(?P<singular>{SEGMENTO_PARAGRAFO_UNICO}|{SEGMENTO_CAPUT})"
     r"|(?P<abrev>prt|liv|tit|cap|sec|sub|art|par|inc|ali|ite)(?P<num>\d+)(?P<letra>[a-z]?)"
-    r")$"
+    rf")(?:{re.escape(SEPARADOR_VERSAO)}(?P<versao>\d+))?$"
 )
 
 _RE_URN: Final = re.compile(
@@ -230,6 +236,10 @@ _RE_NUM_LETRA: Final = re.compile(
 )
 _BORDAS: Final = " .§()\"'–—"
 
+#: Separador de milhar no rótulo: o Planalto escreve "Art. 2.046.". São 1122 rótulos assim
+#: só no Código Civil — metade do código. Sem remover, `segmento()` rejeita todos.
+_RE_MILHAR: Final = re.compile(r"(?<=\d)\.(?=\d{3}(?!\d))")
+
 
 def segmento(tipo: TipoDispositivo, rotulo: str) -> str:
     """Rótulo como a fonte escreve -> segmento de ID.
@@ -244,7 +254,7 @@ def segmento(tipo: TipoDispositivo, rotulo: str) -> str:
     if tipo is TipoDispositivo.CAPUT:
         return SEGMENTO_CAPUT
 
-    s = _RE_PREFIXO.sub("", normalizar(rotulo)).strip(_BORDAS)
+    s = _RE_MILHAR.sub("", _RE_PREFIXO.sub("", normalizar(rotulo))).strip(_BORDAS)
 
     if tipo is TipoDispositivo.PARAGRAFO and "unico" in s:
         return SEGMENTO_PARAGRAFO_UNICO
@@ -267,6 +277,8 @@ def parse_segmento(seg: str) -> tuple[TipoDispositivo, int | None, str]:
     """Segmento -> (tipo, número, letra). Inverso parcial de `segmento`.
 
     O número é None nos singulares (`cpt`, `parunico`), que não têm numeração na fonte.
+    O sufixo de versão é aceito e ignorado: `art6@1` e `art6` são ambos ARTIGO nº 6, e
+    quem precisa da versão chama `versao_de_segmento`.
     """
     if seg in COMPONENTES:
         raise ValueError(f"{seg!r} é componente de norma, não segmento de dispositivo")
@@ -278,6 +290,24 @@ def parse_segmento(seg: str) -> tuple[TipoDispositivo, int | None, str]:
             return TipoDispositivo.CAPUT, None, ""
         return TipoDispositivo.PARAGRAFO, None, ""
     return TIPO_POR_ABREV[m.group("abrev")], int(m.group("num")), m.group("letra")
+
+
+def versao_de_segmento(seg: str) -> int | None:
+    """Índice da redação superada, ou None quando o segmento é a redação vigente."""
+    m = _RE_SEGMENTO.match(seg)
+    if not m:
+        raise ValueError(f"segmento malformado: {seg!r}")
+    v = m.group("versao")
+    return int(v) if v else None
+
+
+def com_versao(seg: str, versao: int) -> str:
+    """Marca o segmento como redação superada: `art6` + 1 -> `art6@1`."""
+    if versao < 1:
+        raise ValueError(f"índice de versão começa em 1, recebi {versao}")
+    if versao_de_segmento(seg) is not None:
+        raise ValueError(f"segmento já versionado: {seg!r}")
+    return f"{seg}{SEPARADOR_VERSAO}{versao}"
 
 
 def montar_caminho(segmentos: Sequence[str]) -> str:
@@ -417,7 +447,7 @@ def resolver_rotulo(texto: str) -> str:
     Levanta ValueError no que não entende, nunca devolve um ID chutado: um esperado errado
     derruba o recall em silêncio e faz parecer defeito da recuperação.
     """
-    resto = normalizar(texto)
+    resto = _RE_MILHAR.sub("", normalizar(texto))
 
     # Maior apelido primeiro: "cf" é prefixo de "cf/88" e casaria antes, deixando "/88"
     # para o parser de artigo.

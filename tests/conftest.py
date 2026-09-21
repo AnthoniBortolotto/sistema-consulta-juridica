@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -23,6 +23,47 @@ URN_CF = "urn:lex:br:federal:constituicao:1988-10-05;1988"
 def data_ref() -> date:
     """Data de referência fixa. Nunca `date.today()` em teste — o resultado mudaria sozinho."""
     return date(2026, 1, 1)
+
+
+@pytest.fixture
+def fixture_cf88_art6() -> bytes:
+    """Recorte real do Planalto: as três redações do art. 6º.
+
+    Devolve BYTES, não texto: quem decide o encoding é `DocumentoBruto.texto()`, e é
+    justamente essa detecção que precisa estar no caminho do teste. A fixture foi salva
+    em utf-8 quando foi criada; a fonte é cp1252. Decodificar com o errado não levanta
+    exceção, só corrompe o texto — foi assim que estes testes falharam da primeira vez.
+    """
+    return (DIR_FIXTURES / "cf88_art6.htm").read_bytes()
+
+
+def html_planalto(blocos: list[str], *, riscados: list[str] | None = None) -> str:
+    """HTML no formato do Planalto: um `<p>` por dispositivo, rótulo abrindo o bloco.
+
+    Sintético, e só para a estrutura que a fixture não cobre — ela é o recorte de um
+    artigo só. Tudo que depende da irregularidade da marcação real usa a fixture.
+    """
+    partes = [f"<p><font face='Arial'>{b}</font></p>" for b in blocos]
+    partes += [f"<p><strike>{b}</strike></p>" for b in (riscados or [])]
+    return f"<html><body>{''.join(partes)}</body></html>"
+
+
+def doc_html(urn: str, html: str | bytes, *, url: str = "https://www.planalto.gov.br/x.htm"):
+    """Empacota HTML como `DocumentoBruto`, para chamar o parser direto.
+
+    Texto vai como cp1252, que é o encoding da fonte real; bytes passam intactos.
+    """
+    from consulta_juridica.ingest.fontes import DocumentoBruto, sha256_de
+
+    conteudo = html if isinstance(html, bytes) else html.encode("cp1252", errors="replace")
+    return DocumentoBruto(
+        urn=urn,
+        url=url,
+        conteudo=conteudo,
+        content_type="text/html",
+        sha256=sha256_de(conteudo),
+        baixado_em=datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+    )
 
 
 @pytest.fixture

@@ -29,8 +29,8 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 ## Ingestão
 
-- `src/consulta_juridica/ingest/fontes.py` — download do Planalto e LexML para `data/raw/`.
-- `src/consulta_juridica/ingest/parser.py` — bruto → árvore de dispositivos. Fidelidade à fonte, nada de chunking.
+- `src/consulta_juridica/ingest/fontes.py` — download do Planalto para `data/raw/`, com procedência (.meta.json + sha256) e detecção de encoding. LexML está fora: fonte eliminada.
+- `src/consulta_juridica/ingest/parser.py` — bruto → árvore de dispositivos. Um caminho textual, âncora só corrobora; redação superada vira dispositivo `@N`. Fidelidade à fonte, nada de chunking.
 - `src/consulta_juridica/ingest/chunking.py` — estratégias de chunk. A decisão mais consequente do sistema.
 - `src/consulta_juridica/ingest/indexer.py` — escrita no Qdrant (apaga e reinsere por norma).
 - `src/consulta_juridica/ingest/pipeline.py` — estágios `baixar` / `ingerir` / `reindexar`.
@@ -76,15 +76,18 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 - `tests/test_filtros.py` — vigência. Prioridade máxima: erro aqui não levanta exceção.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
-- `tests/test_parser.py` — hierarquia, contra HTML real em `tests/fixtures/`.
 - `tests/test_chunking.py` — granularidade e texto contextualizado.
 - `tests/test_urn.py` — esquema de ID, numeral romano, colisão ADCT, golden -> ID.
 - `tests/test_store.py` — conexão, escrita, leitura e o vazamento de vigência pelo SQLite.
+- `tests/test_fontes.py` — procedência, conferência de sha256 e detecção de encoding.
+- `tests/test_parser.py` — hierarquia, `<strike>`, versões e vigência, contra HTML real.
 
 ---
 
-> **Implementados:** `urn.py` e `store/` (`db`, `writer`, `queries`), mais `models`,
-> `config`, `errors` e `vectorstore`, que já nasceram completos.
+> **Implementados:** `urn.py`, `store/` (`db`, `writer`, `queries`) e a aquisição/parsing
+> em `ingest/` (`fontes`, `parser`), mais `models`, `config`, `errors` e `vectorstore`,
+> que já nasceram completos.
 >
 > **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> `ingest/`, `retrieval/`, `generation/`, `api/`, `eval/` e `service.py`.
+> `ingest/chunking`, `ingest/indexer`, `ingest/pipeline`, `ingest/__main__`,
+> `retrieval/`, `generation/`, `api/`, `eval/` e `service.py`.
