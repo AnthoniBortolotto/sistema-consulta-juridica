@@ -46,6 +46,13 @@ CREATE TABLE IF NOT EXISTS remissao (
 CREATE INDEX IF NOT EXISTS ix_remissao_origem  ON remissao(origem_id);
 CREATE INDEX IF NOT EXISTS ix_remissao_destino ON remissao(destino_id);
 
+-- Chave natural da remissão. A PK é sintética, então sem este índice o `upsert_remissoes`
+-- não teria em que conflitar e reingerir a mesma norma duplicaria cada referência
+-- cruzada. O mesmo dispositivo pode citar o mesmo destino duas vezes com texto diferente
+-- ("art. 37, § 6º" e "parágrafo anterior"), por isso o texto entra na chave.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_remissao
+    ON remissao(origem_id, destino_urn, texto_original);
+
 -- Procedência: permite pular o reprocessamento quando a fonte não mudou.
 CREATE TABLE IF NOT EXISTS ingestao (
     norma_urn     TEXT PRIMARY KEY REFERENCES norma(urn) ON DELETE CASCADE,

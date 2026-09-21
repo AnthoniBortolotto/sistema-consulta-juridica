@@ -15,7 +15,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `src/consulta_juridica/models.py` — tipos de domínio (Dispositivo, Chunk, Trecho, Citacao, Resposta). Contrato central; `ChunkPayload` é fronteira de serialização com o Qdrant.
 - `src/consulta_juridica/config.py` — `Settings`. Único módulo que lê variáveis de ambiente.
 - `src/consulta_juridica/errors.py` — exceções de domínio.
-- `src/consulta_juridica/urn.py` — identificadores LexML: montar, parsear, apelidos, URL da fonte.
+- `src/consulta_juridica/urn.py` — ID canônico do dispositivo: esquema do fragmento, segmento por rótulo, apelidos do corpus, rótulo humano -> ID. Leia o docstring antes de inventar um ID.
 - `src/consulta_juridica/vectorstore.py` — vocabulário da coleção Qdrant (nomes de vetor e de campo), sentinela de vigência, `id_ponto`. Olhe aqui antes de escrever qualquer nome de payload.
 - `src/consulta_juridica/embedding.py` — `Encoder`: denso (bge-m3) e esparso (BM25). Indexação e consulta lado a lado, de propósito.
 - `src/consulta_juridica/service.py` — `Servico` e composition root. Único lugar que constrói as dependências.
@@ -78,8 +78,13 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
 - `tests/test_parser.py` — hierarquia, contra HTML real em `tests/fixtures/`.
 - `tests/test_chunking.py` — granularidade e texto contextualizado.
+- `tests/test_urn.py` — esquema de ID, numeral romano, colisão ADCT, golden -> ID.
+- `tests/test_store.py` — conexão, escrita, leitura e o vazamento de vigência pelo SQLite.
 
 ---
 
-> Todos os módulos existem como esqueleto: docstring, imports e assinaturas, com o corpo em
-> `NotImplementedError`. A estrutura está de pé; a implementação, não.
+> **Implementados:** `urn.py` e `store/` (`db`, `writer`, `queries`), mais `models`,
+> `config`, `errors` e `vectorstore`, que já nasceram completos.
+>
+> **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
+> `ingest/`, `retrieval/`, `generation/`, `api/`, `eval/` e `service.py`.
