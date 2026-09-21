@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Final
 
-from .models import TipoDispositivo
+from .models import Dispositivo, TipoDispositivo
 
 SEPARADOR_FRAGMENTO: Final = "!"
 SEPARADOR_SEGMENTO: Final = "_"
@@ -417,6 +417,46 @@ def url_planalto(norma_urn: str) -> str:
     if n is None:
         raise ValueError(f"norma fora do corpus, sem URL conhecida: {norma_urn!r}")
     return n.fonte_url
+
+
+#: Níveis que aparecem numa citação. Parte/Livro/Título/Capítulo/Seção organizam o texto,
+#: mas ninguém cita "Título II, Capítulo I, Art. 5º" — cita "Art. 5º".
+CITAVEIS: Final[frozenset[TipoDispositivo]] = frozenset(
+    {
+        TipoDispositivo.ARTIGO,
+        TipoDispositivo.CAPUT,
+        TipoDispositivo.PARAGRAFO,
+        TipoDispositivo.INCISO,
+        TipoDispositivo.ALINEA,
+        TipoDispositivo.ITEM,
+    }
+)
+
+
+def rotulo_completo_de(cadeia: Sequence[Dispositivo]) -> str:
+    """Cadeia da raiz até o nó -> "Lei 8.078/1990, Art. 6º, VIII".
+
+    Função pura, aqui e não em `store.queries`, porque `ingest.chunking` grava este mesmo
+    rótulo no payload do Qdrant sem abrir banco. Duas implementações divergiriam, e o
+    sintoma seria o rótulo do índice discordando do que a API mostra — na prática, uma
+    citação que o usuário não consegue conferir na fonte.
+
+    Só os níveis citáveis entram, e o caput é omitido quando há algo abaixo dele: a
+    citação corrente é "Art. 6º, VIII", não "Art. 6º, caput, VIII".
+    """
+    if not cadeia:
+        return ""
+    alvo = cadeia[-1]
+    partes = [rotulo_humano(alvo.norma_urn)]
+    if alvo.caminho.startswith("adct" + SEPARADOR_CAMINHO):
+        partes.append("ADCT")
+    for i, d in enumerate(cadeia):
+        if d.tipo not in CITAVEIS:
+            continue
+        if d.tipo is TipoDispositivo.CAPUT and i < len(cadeia) - 1:
+            continue
+        partes.append(d.rotulo)
+    return ", ".join(partes)
 
 
 # --------------------------------------------------------------------------------------

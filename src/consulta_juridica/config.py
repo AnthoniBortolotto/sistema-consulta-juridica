@@ -33,7 +33,10 @@ class Settings(BaseSettings):
     dim_densa: int = 1024
 
     # --- Recuperação ---
-    estrategia_chunk: str = "folha"
+    # "dispositivo" (granularidade fina, depende de expansão) | "artigo" (autocontido).
+    # Ver `ingest.chunking`: o nome é "dispositivo" e não "folha" porque o artigo que
+    # tem incisos também vira chunk, pelo seu caput.
+    estrategia_chunk: str = "dispositivo"
     k_busca: int = 50
     k_prefetch: int = 150
     k_final: int = 8

@@ -12,10 +12,10 @@ criar um módulo novo.
 
 Do que todo o resto depende. Mexer aqui repercute em tudo.
 
-- `src/consulta_juridica/models.py` — tipos de domínio (Dispositivo, Chunk, Trecho, Citacao, Resposta). Contrato central; `ChunkPayload` é fronteira de serialização com o Qdrant.
+- `src/consulta_juridica/models.py` — tipos de domínio (Dispositivo, Chunk, Trecho, Citacao, Resposta) e `ordem_documento`. Contrato central; `ChunkPayload` é fronteira de serialização com o Qdrant.
 - `src/consulta_juridica/config.py` — `Settings`. Único módulo que lê variáveis de ambiente.
 - `src/consulta_juridica/errors.py` — exceções de domínio.
-- `src/consulta_juridica/urn.py` — ID canônico do dispositivo: esquema do fragmento, segmento por rótulo, apelidos do corpus, rótulo humano -> ID. Leia o docstring antes de inventar um ID.
+- `src/consulta_juridica/urn.py` — ID canônico do dispositivo: esquema do fragmento, segmento por rótulo, apelidos do corpus, rótulo humano <-> ID, `rotulo_completo_de`. Leia o docstring antes de inventar um ID.
 - `src/consulta_juridica/vectorstore.py` — vocabulário da coleção Qdrant (nomes de vetor e de campo), sentinela de vigência, `id_ponto`. Olhe aqui antes de escrever qualquer nome de payload.
 - `src/consulta_juridica/embedding.py` — `Encoder`: denso (bge-m3) e esparso (BM25). Indexação e consulta lado a lado, de propósito.
 - `src/consulta_juridica/service.py` — `Servico` e composition root. Único lugar que constrói as dependências.
@@ -31,7 +31,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 - `src/consulta_juridica/ingest/fontes.py` — download do Planalto para `data/raw/`, com procedência (.meta.json + sha256) e detecção de encoding. LexML está fora: fonte eliminada.
 - `src/consulta_juridica/ingest/parser.py` — bruto → árvore de dispositivos. Um caminho textual, âncora só corrobora; redação superada vira dispositivo `@N`. Fidelidade à fonte, nada de chunking.
-- `src/consulta_juridica/ingest/chunking.py` — estratégias de chunk. A decisão mais consequente do sistema.
+- `src/consulta_juridica/ingest/chunking.py` — `ChunkPorDispositivo` e `ChunkPorArtigo`, e o `texto_indexado` com contexto. A decisão mais consequente do sistema.
 - `src/consulta_juridica/ingest/indexer.py` — escrita no Qdrant (apaga e reinsere por norma).
 - `src/consulta_juridica/ingest/pipeline.py` — estágios `baixar` / `ingerir` / `reindexar`.
 - `src/consulta_juridica/ingest/__main__.py` — CLI da ingestão.
@@ -76,7 +76,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 - `tests/test_filtros.py` — vigência. Prioridade máxima: erro aqui não levanta exceção.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
-- `tests/test_chunking.py` — granularidade e texto contextualizado.
+- `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
 - `tests/test_urn.py` — esquema de ID, numeral romano, colisão ADCT, golden -> ID.
 - `tests/test_store.py` — conexão, escrita, leitura e o vazamento de vigência pelo SQLite.
 - `tests/test_fontes.py` — procedência, conferência de sha256 e detecção de encoding.
@@ -85,9 +85,9 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 ---
 
 > **Implementados:** `urn.py`, `store/` (`db`, `writer`, `queries`) e a aquisição/parsing
-> em `ingest/` (`fontes`, `parser`), mais `models`, `config`, `errors` e `vectorstore`,
+> em `ingest/` (`fontes`, `parser`, `chunking`), mais `models`, `config`, `errors` e `vectorstore`,
 > que já nasceram completos.
 >
 > **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> `ingest/chunking`, `ingest/indexer`, `ingest/pipeline`, `ingest/__main__`,
+> `ingest/indexer`, `ingest/pipeline`, `ingest/__main__`,
 > `retrieval/`, `generation/`, `api/`, `eval/` e `service.py`.

@@ -106,14 +106,8 @@ def disp(
 
 
 @pytest.fixture
-def corpus_cdc(conn: sqlite3.Connection) -> sqlite3.Connection:
-    """Art. 6º do CDC, reduzido: caput mais três incisos, um deles revogado em 2020.
-
-    É o formato que a expansão precisa exercitar — o inciso VIII isolado é ininteligível
-    sem o caput, e o inciso revogado é o que não pode voltar pela porta do SQLite.
-    """
-    T = TipoDispositivo
-    norma = Norma(
+def norma_cdc() -> Norma:
+    return Norma(
         urn=URN_CDC,
         tipo="lei",
         numero="8078",
@@ -123,7 +117,17 @@ def corpus_cdc(conn: sqlite3.Connection) -> sqlite3.Connection:
         fonte_url="https://www.planalto.gov.br/ccivil_03/leis/l8078.htm",
         sha256_origem="0" * 64,
     )
-    disps = [
+
+@pytest.fixture
+def arvore_cdc() -> list[Dispositivo]:
+    """Art. 6º do CDC, reduzido: caput mais cinco incisos, um revogado e um em vacatio.
+
+    É o formato que a expansão e o chunking precisam exercitar — o inciso VIII isolado é
+    ininteligível sem o caput, e o inciso revogado é o que não pode voltar nem pela porta
+    do SQLite nem dentro de um chunk por artigo.
+    """
+    T = TipoDispositivo
+    return [
         disp(URN_CDC, ["tit1"], T.TITULO, "Título I", "Dos Direitos do Consumidor", ordem=1),
         disp(URN_CDC, ["tit1", "cap3"], T.CAPITULO, "Capítulo III", "Dos Direitos Básicos",
              ordem=1, parent=["tit1"]),
@@ -148,7 +152,14 @@ def corpus_cdc(conn: sqlite3.Connection) -> sqlite3.Connection:
              "inciso hipotético que só entra em vigor em 2030;",
              ordem=11, parent=["tit1", "cap3", "art6"], vigencia_inicio=date(2030, 1, 1)),
     ]
+
+
+@pytest.fixture
+def corpus_cdc(
+    conn: sqlite3.Connection, norma_cdc: Norma, arvore_cdc: list[Dispositivo]
+) -> sqlite3.Connection:
+    """A mesma árvore, já gravada no SQLite."""
     with db.transacao(conn):
-        writer.upsert_norma(conn, norma)
-        writer.substituir_dispositivos(conn, URN_CDC, disps)
+        writer.upsert_norma(conn, norma_cdc)
+        writer.substituir_dispositivos(conn, URN_CDC, arvore_cdc)
     return conn

@@ -108,6 +108,10 @@ _RE_NOTA: Final = re.compile(
 )
 _RE_ANCORA_ARTIGO: Final = re.compile(r"^art\.?\d+", re.I)
 
+#: Dispositivo cujo texto virou só a marca de revogação. Público porque o chunking também
+#: precisa dele: indexar um chunk cujo conteúdo é a palavra "(revogado)" é ruído puro.
+RE_TEXTO_REVOGADO: Final = re.compile(r"^\(\s*revogad[oa]s?\s*\)\s*[.;,]?$", re.I)
+
 #: Remissão em prosa. Deliberadamente conservador: prefere não achar a achar errado,
 #: porque remissão falsa vira expansão de contexto irrelevante no prompt.
 _RE_REMISSAO: Final = re.compile(
@@ -494,7 +498,14 @@ class ParserPlanaltoHTML:
         fim: dict[str, date | None] = {}
         for versoes in por_base.values():
             for i, n in enumerate(versoes):
-                if n.acao and n.acao.startswith("revogad"):
+                # O Planalto às vezes substitui o dispositivo pelo literal "(revogado)" e
+                # rotula a nota como "Redação dada por", não "Revogado por". Sem tratar,
+                # 29 dispositivos do corpus entram no índice como DIREITO VIGENTE cujo
+                # texto é a palavra "(revogado)".
+                revogado = bool(n.acao and n.acao.startswith("revogad")) or bool(
+                    RE_TEXTO_REVOGADO.match(n.texto)
+                )
+                if revogado:
                     fim[n.caminho] = date(n.ano, 1, 1) if n.ano else publicacao
                 elif i + 1 < len(versoes):
                     # a redação superada morre exatamente quando a seguinte nasce

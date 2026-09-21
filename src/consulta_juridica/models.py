@@ -8,6 +8,7 @@ obriga a reindexar todo o corpus, porque o payload já gravado não muda sozinho
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from enum import StrEnum
 from uuid import UUID
@@ -64,6 +65,37 @@ class Dispositivo(BaseModel):
     vigencia_inicio: date | None = None
     revogado_em: date | None = None
     nota_alteracao: str | None = None  # "Redação dada pela Lei 9.870/1999"
+
+
+def ordem_documento(disps: Sequence[Dispositivo]) -> list[Dispositivo]:
+    """Ordena em ordem de leitura do texto legal.
+
+    Não dá para ordenar por `caminho`: lexicograficamente "inc10" vem antes de "inc2", e o
+    artigo chegaria ao modelo com os incisos embaralhados. A ordem correta é uma busca em
+    profundidade seguindo `ordem`, que é a posição entre irmãos.
+
+    Vive aqui, e não em `store.queries`, porque `ingest.chunking` precisa da mesma ordem
+    sem abrir banco: duas implementações divergiriam e o sintoma seria texto legal fora de
+    sequência dentro do prompt.
+
+    Um nó cujo pai não está na entrada (pai filtrado por vigência, filho não) vira raiz em
+    vez de sumir: no pior caso a ordem fica aproximada, mas nenhum texto é descartado.
+    """
+    presentes = {d.id for d in disps}
+    filhos: dict[str | None, list[Dispositivo]] = {}
+    for d in disps:
+        chave = d.parent_id if d.parent_id in presentes else None
+        filhos.setdefault(chave, []).append(d)
+    for lista in filhos.values():
+        lista.sort(key=lambda d: (d.ordem, d.caminho))
+
+    saida: list[Dispositivo] = []
+    pilha = list(reversed(filhos.get(None, [])))
+    while pilha:
+        atual = pilha.pop()
+        saida.append(atual)
+        pilha.extend(reversed(filhos.get(atual.id, [])))
+    return saida
 
 
 class Remissao(BaseModel):

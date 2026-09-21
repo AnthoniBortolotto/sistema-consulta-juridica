@@ -12,8 +12,8 @@ from collections.abc import Iterator, Sequence
 from datetime import date
 from typing import Final
 
-from ..models import Dispositivo, Norma, Remissao, TipoDispositivo
-from ..urn import SEPARADOR_CAMINHO, rotulo_humano
+from ..models import Dispositivo, Norma, Remissao, TipoDispositivo, ordem_documento
+from ..urn import SEPARADOR_CAMINHO, rotulo_completo_de
 
 #: Predicado de vigência, em um lugar só.
 #:
@@ -34,19 +34,6 @@ _COLUNAS: Final = (
     "d.vigencia_inicio, d.revogado_em, d.nota_alteracao"
 )
 
-#: Níveis que aparecem numa citação. Parte/Livro/Título/Capítulo/Seção organizam o texto,
-#: mas ninguém cita "Título II, Capítulo I, Art. 5º" — cita "Art. 5º".
-_CITAVEIS: Final[frozenset[TipoDispositivo]] = frozenset(
-    {
-        TipoDispositivo.ARTIGO,
-        TipoDispositivo.CAPUT,
-        TipoDispositivo.PARAGRAFO,
-        TipoDispositivo.INCISO,
-        TipoDispositivo.ALINEA,
-        TipoDispositivo.ITEM,
-    }
-)
-
 #: Limite de parâmetros por statement no SQLite antigo. Lotes maiores são fatiados.
 _LOTE: Final = 900
 
@@ -57,33 +44,6 @@ def _para_dispositivo(row: sqlite3.Row) -> Dispositivo:
 
 def _para_norma(row: sqlite3.Row) -> Norma:
     return Norma.model_validate(dict(row))
-
-
-def _ordem_documento(disps: Sequence[Dispositivo]) -> list[Dispositivo]:
-    """Ordena em ordem de leitura do texto legal.
-
-    Não dá para ordenar por `caminho`: lexicograficamente "inc10" vem antes de "inc2", e o
-    artigo chegaria ao modelo com os incisos embaralhados. A ordem correta é uma busca em
-    profundidade seguindo `ordem`, que é a posição entre irmãos.
-
-    Um nó cujo pai foi filtrado (pai revogado, filho não) vira raiz em vez de sumir: no
-    pior caso a ordem fica aproximada, mas nenhum texto é descartado em silêncio.
-    """
-    filhos: dict[str | None, list[Dispositivo]] = {}
-    presentes = {d.id for d in disps}
-    for d in disps:
-        chave = d.parent_id if d.parent_id in presentes else None
-        filhos.setdefault(chave, []).append(d)
-    for lista in filhos.values():
-        lista.sort(key=lambda d: (d.ordem, d.caminho))
-
-    saida: list[Dispositivo] = []
-    pilha = list(reversed(filhos.get(None, [])))
-    while pilha:
-        atual = pilha.pop()
-        saida.append(atual)
-        pilha.extend(reversed(filhos.get(atual.id, [])))
-    return saida
 
 
 def obter_norma(conn: sqlite3.Connection, urn: str) -> Norma | None:
@@ -159,7 +119,7 @@ def subarvore(conn: sqlite3.Connection, id: str, *, data_referencia: date) -> li
             "ref": data_referencia.isoformat(),
         },
     )
-    return _ordem_documento([_para_dispositivo(r) for r in rows])
+    return ordem_documento([_para_dispositivo(r) for r in rows])
 
 
 def _escapar_like(texto: str) -> str:
@@ -186,26 +146,13 @@ def artigo_ancestral(conn: sqlite3.Connection, id: str) -> Dispositivo | None:
 def rotulo_completo(conn: sqlite3.Connection, id: str) -> str:
     """"Lei 8.078/1990, Art. 6º, VIII" — o que o usuário vê e confere na fonte.
 
-    Só os níveis citáveis entram, e o caput é omitido quando há algo abaixo dele: a
-    citação corrente é "Art. 6º, VIII", não "Art. 6º, caput, VIII".
+    A formatação vive em `urn.rotulo_completo_de`, que o chunking também usa para gravar
+    o rótulo no payload. Aqui só carregamos a cadeia do banco.
     """
     atual = obter_dispositivo(conn, id)
     if atual is None:
         return ""
-
-    cadeia = [*ancestrais(conn, id), atual]
-    partes = [rotulo_humano(atual.norma_urn)]
-    if atual.caminho.startswith("adct" + SEPARADOR_CAMINHO):
-        partes.append("ADCT")
-
-    for i, d in enumerate(cadeia):
-        if d.tipo not in _CITAVEIS:
-            continue
-        if d.tipo is TipoDispositivo.CAPUT and i < len(cadeia) - 1:
-            continue
-        partes.append(d.rotulo)
-
-    return ", ".join(partes)
+    return rotulo_completo_de([*ancestrais(conn, id), atual])
 
 
 def remissoes_de(conn: sqlite3.Connection, id: str) -> list[Remissao]:
