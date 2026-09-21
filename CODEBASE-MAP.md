@@ -68,6 +68,10 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `src/consulta_juridica/eval/run.py` — `avaliar_recuperacao` (sem LLM) e `avaliar_ponta_a_ponta`.
 - `src/consulta_juridica/eval/__main__.py` — CLI do eval.
 
+## Dados anotados — versionados
+
+- `golden/seed.jsonl` — golden set inicial, 13 perguntas com dispositivo esperado conferido contra o corpus. Fica fora de `data/` porque é trabalho manual e precisa de versionamento.
+
 ## Testes
 
 - `tests/test_filtros.py` — vigência. Prioridade máxima: erro aqui não levanta exceção.

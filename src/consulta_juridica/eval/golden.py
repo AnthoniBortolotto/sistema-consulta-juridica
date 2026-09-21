@@ -5,9 +5,29 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Sequence
 from datetime import date
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel
+
+
+class Mecanismo(StrEnum):
+    """Qual peça do pipeline a pergunta exercita.
+
+    Existe para o relatório poder quebrar o recall por mecanismo. Um número agregado não
+    diz se o problema está na perna léxica, na densa ou na expansão — e são correções
+    completamente diferentes.
+    """
+
+    LEXICAL = "lexical"
+    SEMANTICO = "semantico"
+    HIBRIDO = "hibrido"
+    VIGENCIA = "vigencia"
+    EXPANSAO = "expansao"
+    DESAMBIGUACAO = "desambiguacao"
+    CRUZAMENTO = "cruzamento"
+    ABSTENCAO = "abstencao"
+    LIMITE = "limite"
 
 
 class ItemGolden(BaseModel):
@@ -18,6 +38,7 @@ class ItemGolden(BaseModel):
     """
 
     id: str
+    mecanismo: Mecanismo
     pergunta: str
     data_referencia: date
     dispositivos_esperados: list[str]

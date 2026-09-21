@@ -122,18 +122,30 @@ Embeddings e reranking rodam localmente — indexar o corpus inteiro não custa 
 
 ## Corpus
 
-| Fonte | O que entra |
-|---|---|
-| [Planalto](https://www.planalto.gov.br/) / [LexML](https://www.lexml.gov.br/) | CF/88 e códigos (CC, CPC, CP, CLT, CDC) |
-| STF / STJ | Súmulas e súmulas vinculantes |
-| [Dados abertos do STJ](https://dadosabertos.web.stj.jus.br/) | Recorte curado de acórdãos |
+| Fonte | O que entra | Volume |
+|---|---|---|
+| [Planalto](https://www.planalto.gov.br/) | CF/88, Código Civil, CDC | ~2,9 MB · ~8.000 dispositivos |
+| [Dados abertos do STJ](https://dadosabertos.web.stj.jus.br/) | Precedentes qualificados (teses firmadas) | 2,5 MB · 4.728 registros |
+
+**Particularidades do Planalto**, descobertas testando as fontes: o servidor bloqueia
+requisições sem `User-Agent` de navegador; as páginas são `cp1252` sem declarar `charset`;
+não há tags semânticas, então a hierarquia vem de âncoras nomeadas (`<a name="art5lxxviii">`)
+quando existem, e de padrão textual quando não. E o mais importante: **`<strike>` marca
+redação superada, não revogação** — o art. 6º da CF aparece três vezes na página, duas
+riscadas e a vigente fora. Isso faz da página um histórico temporal utilizável, e é o que
+viabiliza o filtro de vigência; um parser que ignore o `<strike>` indexa versões
+conflitantes do mesmo artigo como direito vigente.
+
+**Sobre o LexML:** a API SRU está atrás de desafio anti-bot do Senado e devolve HTML de
+interstício em vez de XML. Descartado como fonte automatizável.
 
 **Sobre jurisprudência:** não existe API pública de busca de inteiro teor do STF ou do STJ.
 A [API do DataJud](https://www.cnj.jus.br/sistemas/datajud/api-publica/) (CNJ) expõe
-metadados de processos, não o texto das decisões, e os portais de dados abertos publicam
-dumps, não busca. Por isso o escopo de jurisprudência é deliberadamente estreito: súmulas,
-que são curtas e canônicas, mais um recorte de acórdãos. Cobertura ampla é problema de
-aquisição de dados, não de recuperação.
+metadados de processos, não o texto das decisões. A escolha aqui são os **precedentes
+qualificados** do STJ: teses vinculantes, curtas, canônicas, e com um campo
+`referenciaLegislativa` que liga cada tese ao dispositivo que ela interpreta — o que permite
+cruzar os dois corpora. Inteiro teor de acórdãos é problema de aquisição de dados, não de
+recuperação, e fica fora do escopo.
 
 ---
 
