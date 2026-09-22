@@ -11,13 +11,11 @@ Os testes que falam com o Qdrant pulam quando ele não está de pé: `docker com
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from qdrant_client.models import SparseVector
 
-from consulta_juridica.embedding import Encoder, Vetores
 from consulta_juridica.errors import ColecaoIncompativel, NormaNaoEncontrada
 from consulta_juridica.ingest import pipeline
 from consulta_juridica.ingest.chunking import ChunkPorDispositivo
@@ -34,47 +32,7 @@ from consulta_juridica.vectorstore import (
     metadados_colecao,
 )
 
-from .conftest import URN_CDC
-
-DIM = 8
-
-
-class EncoderFalso(Encoder):
-    """Vetores determinísticos e baratos.
-
-    Determinístico, não aleatório: um teste que falha tem de falhar sempre. O vetor é
-    derivado do hash do texto, então textos diferentes dão vetores diferentes — é só
-    disso que a indexação precisa.
-    """
-
-    nome_denso = "falso/denso"
-    nome_esparso = "falso/esparso"
-    dim = DIM
-
-    def _vetor(self, texto: str) -> Vetores:
-        h = abs(hash(texto))
-        denso = [((h >> (i * 3)) % 97) / 97 for i in range(DIM)]
-        return Vetores(denso=denso, esparso=SparseVector(indices=[h % 1000], values=[1.0]))
-
-    def documentos(self, textos: Sequence[str], *, lote: int = 32) -> Iterator[Vetores]:
-        for t in textos:
-            yield self._vetor(t)
-
-    def consulta(self, texto: str) -> Vetores:
-        return self._vetor(texto)
-
-
-@pytest.fixture(scope="session")
-def client():
-    from consulta_juridica.config import Settings
-    from consulta_juridica.vectorstore import cliente
-
-    c = cliente(Settings())
-    try:
-        c.get_collections()
-    except Exception:  # noqa: BLE001
-        pytest.skip("Qdrant fora do ar — `docker compose up -d`")
-    return c
+from .conftest import DIM, URN_CDC, colecao_de_sessao, esvaziar
 
 
 @pytest.fixture
@@ -90,43 +48,13 @@ def colecao(client) -> Iterator[str]:
 
 @pytest.fixture(scope="session")
 def _colecao_pronta(client) -> Iterator[str]:
-    """Uma coleção para a sessão inteira, com os índices de payload já construídos.
-
-    Medido: construir os 6 índices de payload custa ~21 s, e o `wait=False` só adia esse
-    custo para o primeiro `upsert` síncrono. Pagar uma vez por sessão em vez de uma vez
-    por teste tirou o suite de 4 min para segundos.
-    """
-    from qdrant_client import models
-
-    nome = "teste_cj_indexacao"
-    if client.collection_exists(nome):
-        client.delete_collection(nome)
-    garantir_colecao(client, nome=nome, dim=DIM, nome_modelo=EncoderFalso.nome_denso)
-    # Um upsert síncrono força a construção dos índices agora, fora do tempo dos testes.
-    client.upsert(
-        nome,
-        points=[models.PointStruct(id=1, vector={VETOR_DENSO: [0.0] * DIM}, payload={})],
-        wait=True,
-    )
-    client.delete(nome, points_selector=models.PointIdsList(points=[1]), wait=True)
-    yield nome
-    client.delete_collection(nome)
+    yield from colecao_de_sessao(client, "teste_cj_indexacao")
 
 
 @pytest.fixture
 def colecao_limpa(client, _colecao_pronta) -> str:
     """A coleção da sessão, sem pontos."""
-    from qdrant_client import models
-
-    client.delete(
-        _colecao_pronta, points_selector=models.FilterSelector(filter=models.Filter()), wait=True
-    )
-    return _colecao_pronta
-
-
-@pytest.fixture
-def encoder() -> Encoder:
-    return EncoderFalso()
+    return esvaziar(client, _colecao_pronta)
 
 
 # --- coleção --------------------------------------------------------------------------

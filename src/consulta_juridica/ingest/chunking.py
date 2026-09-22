@@ -29,7 +29,15 @@ from collections.abc import Iterator, Sequence
 from datetime import date
 from typing import Final, Protocol
 
-from ..models import Chunk, ChunkPayload, Dispositivo, Norma, TipoDispositivo, ordem_documento
+from ..models import (
+    Chunk,
+    ChunkPayload,
+    Dispositivo,
+    Norma,
+    TipoDispositivo,
+    linha_dispositivo,
+    ordem_documento,
+)
 from ..urn import ESTRUTURAIS, SEPARADOR_CAMINHO, rotulo_completo_de, rotulo_humano
 from ..vectorstore import dia, dia_ou_sentinela, id_ponto
 from .parser import RE_TEXTO_REVOGADO
@@ -84,19 +92,11 @@ class Arvore:
         return ordem_documento([x for x in self._disps if x.caminho.startswith(prefixo)])
 
 
-#: Como a técnica legislativa separa o rótulo do texto. O inciso leva travessão
-#: ("VIII - a facilitação"), a alínea já traz o parêntese no rótulo ("a)"), e artigo e
-#: parágrafo abrem direto. Reconstruir importa: o texto indexado é lido por humano na
-#: depuração do prompt, e "VIII a facilitação" não é como a lei se escreve.
-_SEPARADOR_ROTULO: Final[dict[TipoDispositivo, str]] = {TipoDispositivo.INCISO: " - "}
-
-
-def linha(d: Dispositivo) -> str:
-    """Rótulo mais texto próprio, na pontuação da fonte."""
-    texto = d.texto.strip()
-    if not texto:
-        return d.rotulo
-    return f"{d.rotulo}{_SEPARADOR_ROTULO.get(d.tipo, ' ')}{texto}"
+#: Reconstruir a pontuação importa: o texto indexado é lido por humano na depuração do
+#: prompt, e "VIII a facilitação" não é como a lei se escreve. A formatação vive em
+#: `models.linha_dispositivo` porque `retrieval.expansao` monta com ela o texto que vai
+#: ao modelo — duas implementações divergiriam.
+linha = linha_dispositivo
 
 
 def texto_contextualizado(

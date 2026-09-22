@@ -46,9 +46,33 @@ class Servico:
         raise NotImplementedError
 
 
-def construir_recuperador(cfg: Settings) -> Recuperador:
-    """Monta o recuperador. Carrega os modelos — chame uma vez por processo."""
-    raise NotImplementedError
+def construir_recuperador(
+    cfg: Settings, *, com_rerank: bool = True, threads: int | None = None
+) -> Recuperador:
+    """Monta o recuperador. Carrega os modelos — chame uma vez por processo.
+
+    A conexão nasce somente-leitura: recuperação nunca escreve, e o banco impedindo é mais
+    barato que confiar na disciplina. Quem a fecha é quem chamou — a API pelo lifespan, o
+    CLI no fim do processo.
+
+    `com_rerank=False` troca o cross-encoder pela identidade, que é como o eval mede a
+    recuperação pura sem esperar os segundos de carga do modelo.
+    """
+    from .embedding import construir_encoder
+    from .retrieval.expansao import Nivel
+    from .retrieval.rerank import construir_reranker
+    from .store import db
+    from .vectorstore import cliente
+
+    return Recuperador(
+        conn=db.conectar(cfg.caminho_sqlite, somente_leitura=True),
+        client=cliente(cfg),
+        encoder=construir_encoder(cfg, threads=threads),
+        reranker=construir_reranker(cfg, com_rerank=com_rerank),
+        colecao=cfg.colecao,
+        nivel=Nivel(cfg.nivel_expansao),
+        k_prefetch=cfg.k_prefetch,
+    )
 
 
 def construir_servico(cfg: Settings) -> Servico:

@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # Ver `ingest.chunking`: o nome é "dispositivo" e não "folha" porque o artigo que
     # tem incisos também vira chunk, pelo seu caput.
     estrategia_chunk: str = "dispositivo"
+    # Até onde a expansão sobe: "artigo" | "nenhum" | "secao". Ver `retrieval.expansao`.
+    nivel_expansao: str = "artigo"
     k_busca: int = 50
     k_prefetch: int = 150
     k_final: int = 8

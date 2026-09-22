@@ -12,7 +12,7 @@ criar um módulo novo.
 
 Do que todo o resto depende. Mexer aqui repercute em tudo.
 
-- `src/consulta_juridica/models.py` — tipos de domínio (Dispositivo, Chunk, Trecho, Citacao, Resposta) e `ordem_documento`. Contrato central; `ChunkPayload` é fronteira de serialização com o Qdrant.
+- `src/consulta_juridica/models.py` — tipos de domínio (Dispositivo, Chunk, Trecho, Citacao, Resposta), `ordem_documento` e `linha_dispositivo`. Contrato central; `ChunkPayload` é fronteira de serialização com o Qdrant.
 - `src/consulta_juridica/config.py` — `Settings`. Único módulo que lê variáveis de ambiente.
 - `src/consulta_juridica/errors.py` — exceções de domínio.
 - `src/consulta_juridica/tls.py` — confiança TLS pelo truststore do SO. Olhe aqui se um download falhar com `CERTIFICATE_VERIFY_FAILED`.
@@ -40,8 +40,8 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 ## Recuperação
 
 - `src/consulta_juridica/retrieval/filtros.py` — `Criterios` → filtro Qdrant. Onde moram os bugs de vigência.
-- `src/consulta_juridica/retrieval/busca.py` — busca híbrida com RRF server-side.
-- `src/consulta_juridica/retrieval/rerank.py` — cross-encoder, e um reranker identidade para medir a recuperação pura.
+- `src/consulta_juridica/retrieval/busca.py` — busca híbrida com RRF server-side, `Candidato` e `hidratar` (o texto vem do SQLite, não do payload).
+- `src/consulta_juridica/retrieval/rerank.py` — cross-encoder, reranker identidade para medir a recuperação pura, e o que o modelo lê (`texto_para_rerank`).
 - `src/consulta_juridica/retrieval/expansao.py` — inciso → artigo via SQLite, reaplicando a vigência.
 - `src/consulta_juridica/retrieval/pipeline.py` — `Recuperador`, com os modelos injetados.
 - `src/consulta_juridica/retrieval/__main__.py` — inspeção da recuperação sem gastar token.
@@ -77,6 +77,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 - `tests/test_filtros.py` — vigência. Prioridade máxima: erro aqui não levanta exceção.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
+- `tests/test_recuperacao.py` — contrato da chamada ao Qdrant (o filtro nos prefetch), rerank e o `Recuperador` ponta a ponta. Pula sem Qdrant.
 - `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
 - `tests/test_indexacao.py` — coleção, drift, apagar-antes-de-inserir e os estágios. Pula sem Qdrant.
 - `tests/test_tls.py` — a verificação TLS nunca pode ser desligada.
@@ -88,8 +89,9 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 ---
 
 > **Implementados:** o núcleo (`models`, `config`, `errors`, `urn`, `tls`, `embedding`,
-> `vectorstore`), o `store/` inteiro e a ingestão inteira (`fontes`, `parser`, `chunking`,
-> `indexer`, `pipeline`, `__main__`).
+> `vectorstore`), o `store/` inteiro, a ingestão inteira (`fontes`, `parser`, `chunking`,
+> `indexer`, `pipeline`, `__main__`), a recuperação inteira (`filtros`, `busca`, `rerank`,
+> `expansao`, `pipeline`, `__main__`) e `service.construir_recuperador`.
 >
 > **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> `retrieval/`, `generation/`, `api/`, `eval/` e `service.py`.
+> `generation/`, `api/`, `eval/` e o resto de `service.py`.

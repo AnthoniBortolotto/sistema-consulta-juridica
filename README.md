@@ -208,8 +208,8 @@ avaliação de recuperação rodam sem chave — os modelos de embedding e de re
 
 ## Roadmap
 
-- [ ] Ingestão com parser estrutural (CF/88 primeiro)
-- [ ] Índice híbrido e busca com filtro de vigência
+- [x] Ingestão com parser estrutural (CF/88 primeiro)
+- [x] Índice híbrido e busca com filtro de vigência
 - [ ] API de consulta com citations
 - [ ] Front de teste com painel de recuperação
 - [ ] Golden set e eval

@@ -105,7 +105,10 @@ class EncoderLocal(Encoder):
         self.nome_denso = modelo_denso
         self.nome_esparso = modelo_esparso
         self.idioma = idioma
-        self.dim = int(self._denso.get_sentence_embedding_dimension())
+        # `get_sentence_embedding_dimension` virou `get_embedding_dimension` no
+        # sentence-transformers 6: o nome antigo ainda funciona, com FutureWarning em
+        # toda execução do CLI de recuperação.
+        self.dim = int(self._denso.get_embedding_dimension())
 
     def documentos(self, textos: Sequence[str], *, lote: int = JANELA_PADRAO) -> Iterator[Vetores]:
         """Codifica textos para indexação, em janelas e preservando a ordem de entrada.

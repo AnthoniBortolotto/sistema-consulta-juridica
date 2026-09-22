@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from enum import StrEnum
+from typing import Final
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -65,6 +66,26 @@ class Dispositivo(BaseModel):
     vigencia_inicio: date | None = None
     revogado_em: date | None = None
     nota_alteracao: str | None = None  # "Redação dada pela Lei 9.870/1999"
+
+
+#: Como a técnica legislativa separa o rótulo do texto. O inciso leva travessão
+#: ("VIII - a facilitação"), a alínea já traz o parêntese no rótulo ("a)"), e artigo e
+#: parágrafo abrem direto.
+_SEPARADOR_ROTULO: Final[dict[TipoDispositivo, str]] = {TipoDispositivo.INCISO: " - "}
+
+
+def linha_dispositivo(d: Dispositivo) -> str:
+    """Rótulo mais texto próprio, na pontuação da fonte: "VIII - a facilitação...".
+
+    Vive aqui pelo mesmo motivo de `ordem_documento`: `ingest.chunking` monta com isto o
+    texto indexado e `retrieval.expansao` monta o texto que vai ao modelo. Duas
+    implementações divergiriam, e o sintoma seria o trecho enviado ao modelo pontuado
+    diferente do que foi indexado — numa citação, diferença de caractere é diferença.
+    """
+    texto = d.texto.strip()
+    if not texto:
+        return d.rotulo
+    return f"{d.rotulo}{_SEPARADOR_ROTULO.get(d.tipo, ' ')}{texto}"
 
 
 def ordem_documento(disps: Sequence[Dispositivo]) -> list[Dispositivo]:
