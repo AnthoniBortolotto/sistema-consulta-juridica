@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from ..models import Uso
@@ -72,28 +73,29 @@ class BackendMessagesAPI(LLMBackend):
     def gerar(self, pedido: Pedido) -> ResultadoGeracao:
         from ..errors import RecusaDoModelo
 
-        resposta = self._client.messages.create(
-            model=self.modelo,
-            max_tokens=pedido.max_tokens,
-            system=[
-                {
-                    "type": "text",
-                    "text": pedido.sistema,
-                    # O sistema é idêntico entre consultas da mesma data; os documentos
-                    # mudam a cada pergunta e ficam DEPOIS do ponto de corte.
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        *(bloco_documento(d) for d in pedido.documentos),
-                        {"type": "text", "text": pedido.pergunta},
-                    ],
-                }
-            ],
-        )
+        with _traduzir_erros():
+            resposta = self._client.messages.create(
+                model=self.modelo,
+                max_tokens=pedido.max_tokens,
+                system=[
+                    {
+                        "type": "text",
+                        "text": pedido.sistema,
+                        # O sistema é idêntico entre consultas da mesma data; os documentos
+                        # mudam a cada pergunta e ficam DEPOIS do ponto de corte.
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            *(bloco_documento(d) for d in pedido.documentos),
+                            {"type": "text", "text": pedido.pergunta},
+                        ],
+                    }
+                ],
+            )
 
         # Checar ANTES de ler o conteúdo: numa recusa o `content` pode não trazer o que se
         # espera, e `stop_details` só é preenchido neste caso.
@@ -110,6 +112,54 @@ class BackendMessagesAPI(LLMBackend):
             modelo=resposta.model,
             uso=_uso(resposta),
         )
+
+
+@contextmanager
+def _traduzir_erros():
+    """Erro do SDK -> erro de domínio, e só os que NÃO são defeito nosso.
+
+    Falta de chave, limite de taxa e queda de rede são indisponibilidade: o serviço não
+    pôde chamar o modelo, e a API HTTP responde 503. Já um 400 é requisição malformada —
+    defeito deste código, e tem de estourar com o traceback inteiro em vez de virar uma
+    mensagem educada que ninguém investiga.
+    """
+    from anthropic import (
+        APIConnectionError,
+        AuthenticationError,
+        PermissionDeniedError,
+        RateLimitError,
+    )
+
+    from ..errors import BackendIndisponivel
+
+    try:
+        yield
+    except TypeError as e:
+        # Sem credencial NENHUMA o SDK nem chega a enviar: valida os cabeçalhos e levanta
+        # TypeError. É o erro mais provável de quem acabou de clonar o repositório, então
+        # merece uma mensagem que diga o que fazer.
+        #
+        # Checar a chave antes de chamar seria mais limpo e estaria errado: o SDK também
+        # aceita perfil OAuth e federação de identidade, em que `api_key` é None e as
+        # requisições funcionam. Quem decide se há credencial é o SDK; aqui só se traduz
+        # o veredito. Se a mensagem mudar, volta a ser um 500 — que é o que já era.
+        if "authentication" not in str(e).lower():
+            raise
+        raise BackendIndisponivel(
+            "nenhuma credencial da Anthropic encontrada: defina ANTHROPIC_API_KEY (ou use "
+            "CJ_BACKEND_LLM=cli, sem citations nativas)"
+        ) from e
+    except AuthenticationError as e:
+        raise BackendIndisponivel(
+            "a Anthropic recusou a credencial: defina ANTHROPIC_API_KEY (ou use "
+            "CJ_BACKEND_LLM=cli, sem citations nativas)"
+        ) from e
+    except PermissionDeniedError as e:
+        raise BackendIndisponivel(f"credencial sem permissão para {e.__class__.__name__}") from e
+    except RateLimitError as e:
+        raise BackendIndisponivel("limite de taxa da Anthropic atingido") from e
+    except APIConnectionError as e:
+        raise BackendIndisponivel(f"falha de rede ao chamar a Anthropic: {e}") from e
 
 
 def _citacoes(resposta, pedido: Pedido):

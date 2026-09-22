@@ -8,7 +8,7 @@ duas para o mesmo tipo é o que impede o vazamento do backend chegar até a API 
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from ..models import Citacao, Trecho
@@ -24,6 +24,7 @@ def resolver(
     brutas: Sequence[CitacaoBruta],
     docs: Sequence[BlocoDocumento],
     trechos: Sequence[Trecho],
+    rotulo_de: Callable[[str], str] | None = None,
 ) -> list[Citacao]:
     """Liga cada citação ao dispositivo e à URL de origem.
 
@@ -41,6 +42,11 @@ def resolver(
     - texto citado que não bate com o intervalo — sinal de que o corpo enviado divergiu de
       `Trecho.texto`, e então TODOS os deslocamentos estão errados, não só este;
     - intervalo que cai só na marca de omissão — a citação seria de texto que não é lei.
+
+    `rotulo_de` traduz o dispositivo citado para o rótulo humano. Sem ele a citação herda o
+    rótulo do TRECHO, e aí o par fica inconsistente: `dispositivo_id` apontando para o
+    parágrafo único e o rótulo dizendo "Art. 49". Opcional porque a função é pura de
+    propósito — quem tem banco é o serviço, e é ele que passa a tradução.
     """
     por_ref = {d.ref: d for d in docs}
     por_id = {t.dispositivo_id: t for t in trechos}
@@ -63,10 +69,11 @@ def resolver(
                 continue
             alvo = achado
 
+        rotulo = rotulo_de(alvo) if rotulo_de else ""
         resolvidas.append(
             Citacao(
                 dispositivo_id=alvo,
-                rotulo_completo=trecho.rotulo_completo,
+                rotulo_completo=rotulo or trecho.rotulo_completo,
                 texto_citado=bruta.texto_citado,
                 fonte_url=trecho.fonte_url,
                 inicio_char=bruta.inicio_char,

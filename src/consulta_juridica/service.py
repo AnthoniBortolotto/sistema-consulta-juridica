@@ -20,6 +20,7 @@ from .generation.backend import LLMBackend
 from .models import MotivoAbstencao, Resposta
 from .retrieval.filtros import Criterios
 from .retrieval.pipeline import Recuperador
+from .store import queries
 
 #: Texto devolvido quando a recuperação não traz nada. Fixo, e não gerado: chamar o modelo
 #: para ele dizer que não recebeu trecho nenhum custaria token para não acrescentar nada.
@@ -82,7 +83,9 @@ class Servico:
         resultado = self.backend.gerar(pedido)
         return Resposta(
             texto=resultado.texto,
-            citacoes=citacoes.resolver(resultado.citacoes, pedido.documentos, trechos),
+            citacoes=citacoes.resolver(
+                resultado.citacoes, pedido.documentos, trechos, self._rotulo_de
+            ),
             trechos=list(trechos),
             abstencao=(
                 MotivoAbstencao.CONTEXTO_INSUFICIENTE
@@ -94,6 +97,18 @@ class Servico:
             versao_prompt=prompt.VERSAO_PROMPT,
             uso=resultado.uso,
         )
+
+    def _rotulo_de(self, dispositivo_id: str) -> str:
+        """Rótulo humano do dispositivo CITADO, que não é o do trecho.
+
+        Com expansão até o artigo, o trecho é "Art. 49" e a citação pode cair no parágrafo
+        único. Herdar o rótulo do trecho deixaria o par inconsistente: o ID apontando para
+        o parágrafo e o rótulo dizendo o artigo — e é o rótulo que o usuário lê e confere.
+
+        Vive aqui, e não em `citacoes`, porque é o serviço que tem a conexão: manter
+        `resolver` puro é o que permite testá-lo sem banco.
+        """
+        return queries.rotulo_completo(self.recuperador.conn, dispositivo_id)
 
 
 def construir_recuperador(

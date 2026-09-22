@@ -53,5 +53,34 @@ class RespostaOut(BaseModel):
 
 
 def de_dominio(r: Resposta) -> RespostaOut:
-    """Converte a resposta de domínio para o contrato HTTP."""
-    raise NotImplementedError
+    """Converte a resposta de domínio para o contrato HTTP.
+
+    `versao_prompt` e `uso` ficam de fora de propósito: são instrumentação de eval, não
+    contrato de cliente. Expô-los agora obrigaria a mantê-los para sempre.
+    """
+    return RespostaOut(
+        resposta=r.texto,
+        citacoes=[
+            CitacaoOut(
+                dispositivo=c.dispositivo_id,
+                rotulo=c.rotulo_completo,
+                texto_citado=c.texto_citado,
+                url=c.fonte_url,
+            )
+            for c in r.citacoes
+        ],
+        trechos_recuperados=[
+            TrechoOut(
+                dispositivo=t.dispositivo_id,
+                rotulo=t.rotulo_completo,
+                texto=t.texto,
+                score=t.score,
+                score_fusao=t.score_fusao,
+                score_rerank=t.score_rerank,
+            )
+            for t in r.trechos
+        ],
+        abstencao=r.abstencao.value if r.abstencao else None,
+        data_referencia=r.data_referencia,
+        modelo=r.modelo,
+    )

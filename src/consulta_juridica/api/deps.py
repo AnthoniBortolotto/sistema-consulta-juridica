@@ -14,8 +14,8 @@ def obter_servico(request: Request) -> Servico:
     Nunca construa o serviço aqui: bge-m3 e o cross-encoder somam alguns GB e segundos de
     carga, e recarregá-los a cada requisição inviabiliza a API.
     """
-    raise NotImplementedError
+    return request.app.state.servico
 
 
 def obter_config(request: Request) -> Settings:
-    raise NotImplementedError
+    return request.app.state.cfg

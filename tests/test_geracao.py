@@ -490,16 +490,18 @@ def test_cli_nao_suporta_citacoes():
 
 
 class RecuperadorFalso:
-    def __init__(self, trechos):
-        self.trechos, self.chamadas = trechos, []
+    def __init__(self, trechos, conn=None):
+        self.trechos, self.chamadas, self.conn = trechos, [], conn
 
     def recuperar(self, consulta, criterios, **kw):
         self.chamadas.append(criterios.data_referencia)
         return self.trechos
 
 
-def servico_com(trechos, backend) -> Servico:
-    return Servico(recuperador=RecuperadorFalso(trechos), backend=backend, modelo="m")
+def servico_com(trechos, backend, conn=None) -> Servico:
+    return Servico(
+        recuperador=RecuperadorFalso(trechos, conn), backend=backend, modelo="m"
+    )
 
 
 def test_sem_candidatos_nao_chama_o_modelo(data_ref):
@@ -531,7 +533,7 @@ def test_abstencao_do_modelo_e_um_motivo_diferente(trecho, data_ref):
     assert backend.chamadas == 1
 
 
-def test_resposta_carrega_citacao_resolvida_e_procedencia(trecho, data_ref):
+def test_resposta_carrega_citacao_resolvida_e_procedencia(trecho, data_ref, corpus_cdc):
     ini, fim = faixa_de(trecho, INC8)
     backend = BackendContador(
         ResultadoGeracao(
@@ -541,11 +543,14 @@ def test_resposta_carrega_citacao_resolvida_e_procedencia(trecho, data_ref):
             uso=Uso(tokens_entrada=10),
         )
     )
-    resposta = servico_com([trecho], backend).responder(
+    resposta = servico_com([trecho], backend, corpus_cdc).responder(
         Consulta(pergunta="p", data_referencia=data_ref)
     )
     assert resposta.abstencao is None
     assert [c.dispositivo_id for c in resposta.citacoes] == [INC8]
+    # O rótulo é o do dispositivo CITADO, não o do trecho: o trecho é o art. 6º inteiro.
+    assert resposta.citacoes[0].rotulo_completo == "Lei 8.078/1990, Art. 6º, VIII"
+    assert trecho.rotulo_completo == "Lei 8.078/1990, Art. 6º"
     assert resposta.versao_prompt == pr.VERSAO_PROMPT
     assert resposta.modelo == "claude-opus-5"
     assert resposta.trechos == [trecho]
@@ -563,3 +568,69 @@ def test_documento_e_trecho_nao_se_desalinham(trecho, data_ref):
     docs = pr.montar_documentos([trecho])
     assert [d.dispositivo_id for d in docs] == [trecho.dispositivo_id]
     assert isinstance(docs[0], BlocoDocumento)
+
+
+# --- tradução de erro do SDK ----------------------------------------------------------
+
+
+def erro_sdk(classe, status: int):
+    """Constrói um erro do SDK como ele chegaria de verdade, com response HTTP."""
+    import httpx2
+
+    requisicao = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    return classe("falhou", response=httpx2.Response(status, request=requisicao), body=None)
+
+
+class ClienteQueFalha:
+    def __init__(self, erro):
+        self.erro, self.messages = erro, self
+
+    def create(self, **kwargs):
+        raise self.erro
+
+
+def test_falta_de_chave_vira_indisponibilidade(pedido):
+    """É o primeiro erro que qualquer pessoa clonando o repositório encontra; um traceback
+    do SDK não diz o que fazer."""
+    import anthropic
+
+    cliente = ClienteQueFalha(erro_sdk(anthropic.AuthenticationError, 401))
+    backend = BackendMessagesAPI("claude-opus-5", client=cliente)
+    with pytest.raises(BackendIndisponivel, match="ANTHROPIC_API_KEY"):
+        backend.gerar(pedido)
+
+
+def test_limite_de_taxa_tambem_e_indisponibilidade(pedido):
+    import anthropic
+
+    cliente = ClienteQueFalha(erro_sdk(anthropic.RateLimitError, 429))
+    with pytest.raises(BackendIndisponivel, match="limite de taxa"):
+        BackendMessagesAPI("claude-opus-5", client=cliente).gerar(pedido)
+
+
+def test_requisicao_malformada_nao_e_traduzida(pedido):
+    """400 é defeito NOSSO — citations com structured output, por exemplo. Transformá-lo
+    numa mensagem educada esconderia o bug atrás de um 503 que ninguém investiga."""
+    import anthropic
+
+    cliente = ClienteQueFalha(erro_sdk(anthropic.BadRequestError, 400))
+    with pytest.raises(anthropic.BadRequestError):
+        BackendMessagesAPI("claude-opus-5", client=cliente).gerar(pedido)
+
+
+def test_ausencia_total_de_credencial_vira_indisponibilidade(pedido):
+    """Sem credencial nenhuma o SDK levanta TypeError antes de enviar — não é
+    `AuthenticationError`, que só aparece quando há chave e ela é recusada."""
+    erro = TypeError(
+        "Could not resolve authentication method. Expected one of api_key, auth_token..."
+    )
+    with pytest.raises(BackendIndisponivel, match="ANTHROPIC_API_KEY"):
+        BackendMessagesAPI("claude-opus-5", client=ClienteQueFalha(erro)).gerar(pedido)
+
+
+def test_outro_typeerror_continua_estourando(pedido):
+    """A tradução é por mensagem: um TypeError nosso não pode virar 503."""
+    with pytest.raises(TypeError, match="lista"):
+        BackendMessagesAPI(
+            "claude-opus-5", client=ClienteQueFalha(TypeError("esperava lista"))
+        ).gerar(pedido)

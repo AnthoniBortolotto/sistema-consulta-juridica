@@ -246,8 +246,8 @@ ver o sistema responder; **não** produz citações nativas nem números de aval
 
 - [x] Ingestão com parser estrutural (CF/88 primeiro)
 - [x] Índice híbrido e busca com filtro de vigência
-- [x] Geração com citations nativas (API de consulta: fase seguinte)
-- [ ] Front de teste com painel de recuperação
+- [x] Geração com citations nativas
+- [x] API de consulta + front de teste com painel de recuperação
 - [x] Golden set e eval de recuperação
 - [ ] Expansão por remissões (1 hop)
 - [ ] Ampliação do corpus de jurisprudência

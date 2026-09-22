@@ -24,7 +24,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 ## Fonte da verdade — SQLite
 
 - `src/consulta_juridica/store/schema.sql` — DDL do corpus.
-- `src/consulta_juridica/store/db.py` — conexão (com modo somente-leitura) e transação.
+- `src/consulta_juridica/store/db.py` — conexão (somente-leitura e compartilhável entre threads) e transação.
 - `src/consulta_juridica/store/writer.py` — escrita. Só a ingestão importa.
 - `src/consulta_juridica/store/queries.py` — leitura: ancestrais, subárvore, artigo ancestral, remissões, redações de um dispositivo. `PREDICADO_VIGENTE` mora aqui.
 
@@ -57,10 +57,10 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 ## API
 
-- `src/consulta_juridica/api/app.py` — `criar_app` e lifespan (carrega modelos uma vez).
+- `src/consulta_juridica/api/app.py` — `criar_app`, lifespan (carrega modelos uma vez), `/v1/consultas`, `/v1/saude` e os erros de backend virando 502/503.
 - `src/consulta_juridica/api/deps.py` — injeção do serviço a partir de `app.state`.
 - `src/consulta_juridica/api/schemas.py` — DTOs HTTP, separados do domínio.
-- `src/consulta_juridica/api/web/index.html` — front de teste (placeholder).
+- `src/consulta_juridica/api/web/index.html` — front de teste: Vue por CDN, painel de trechos com scores e realce do texto citado.
 
 ## Eval
 
@@ -80,6 +80,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `tests/test_recuperacao.py` — contrato da chamada ao Qdrant (o filtro nos prefetch), rerank e o `Recuperador` ponta a ponta. Pula sem Qdrant.
 - `tests/test_eval.py` — métricas puras, validação do golden e a agregação do relatório.
 - `tests/test_geracao.py` — prompt, cache, resolução de citação e os dois backends, com dublês. Não chama o Claude.
+- `tests/test_api.py` — contrato HTTP, injeção do serviço e o estático. Serviço dublê, sem carregar modelo.
 - `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
 - `tests/test_indexacao.py` — coleção, drift, apagar-antes-de-inserir e os estágios. Pula sem Qdrant.
 - `tests/test_tls.py` — a verificação TLS nunca pode ser desligada.
@@ -94,13 +95,14 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 > `vectorstore`), o `store/` inteiro, a ingestão inteira (`fontes`, `parser`, `chunking`,
 > `indexer`, `pipeline`, `__main__`), a recuperação inteira (`filtros`, `busca`, `rerank`,
 > `expansao`, `pipeline`, `__main__`), a geração inteira (`prompt`, `claude_api`,
-> `claude_cli`, `cache`, `citacoes`), o `service.py` inteiro, e o eval de recuperação
-> (`golden`, `metrics.recall_em_k`/`mrr`, `run.avaliar_recuperacao`, `eval/__main__`).
+> `claude_cli`, `cache`, `citacoes`), o `service.py` inteiro, a API inteira (`schemas`,
+> `deps`, `app`, `web/index.html`) e o eval de recuperação (`golden`,
+> `metrics.recall_em_k`/`mrr`, `run.avaliar_recuperacao`, `eval/__main__`).
 >
 > **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> `api/` e o ponta a ponta do eval (`acuracia_citacao`, `taxa_abstencao`,
+> só o ponta a ponta do eval (`acuracia_citacao`, `taxa_abstencao`,
 > `avaliar_ponta_a_ponta`).
 >
-> **Sem execução real contra a API:** a geração não foi exercitada contra a Messages API —
-> não há chave nesta máquina. O contrato está coberto por dublês; a primeira chamada de
-> verdade é da fase 8.
+> **Sem execução real contra a API:** a geração nunca foi exercitada contra a Messages API —
+> não há chave nesta máquina. O contrato está coberto por dublês, e a API HTTP roda ponta a
+> ponta com recuperação real: o que falta é a chamada ao modelo.

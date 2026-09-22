@@ -4,19 +4,341 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Consulta Jurídica</title>
+    <!--
+      Vue 3 por CDN, sem build. Servido por esta mesma origem pelo FastAPI, portanto sem
+      CORS e sem segundo dev server.
+
+      O painel de trechos não é enfeite: um chat que mostra só o parágrafo final não
+      permite distinguir falha de recuperação de alucinação do modelo, que são problemas
+      diferentes com correções diferentes. Os scores de fusão e de rerank ficam à vista
+      pelo mesmo motivo.
+    -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fundo: #fbfaf8;
+        --papel: #ffffff;
+        --borda: #e2ded7;
+        --texto: #1c1a17;
+        --suave: #6b6558;
+        --acento: #7a1f1f;
+        --realce: #fdf3c9;
+        --aviso: #8a5a00;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fundo: #14161a;
+          --papel: #1b1e24;
+          --borda: #2e333c;
+          --texto: #e8e6e3;
+          --suave: #9aa1ad;
+          --acento: #e3908f;
+          --realce: #3d3a1d;
+          --aviso: #d9a441;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--fundo);
+        color: var(--texto);
+        font: 16px/1.6 ui-serif, Georgia, "Times New Roman", serif;
+      }
+      header, main { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+      header { padding-top: 28px; padding-bottom: 8px; }
+      h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+      .aviso {
+        color: var(--aviso);
+        font: 500 0.82rem/1.5 ui-sans-serif, system-ui, sans-serif;
+        margin: 0 0 20px;
+      }
+      form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+      input, button {
+        font: inherit;
+        border: 1px solid var(--borda);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: var(--papel);
+        color: var(--texto);
+      }
+      input[type="text"] { flex: 1 1 340px; }
+      input[type="date"] { font-size: 0.9rem; }
+      button {
+        background: var(--acento);
+        border-color: var(--acento);
+        color: #fff;
+        cursor: pointer;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-weight: 600;
+      }
+      button[disabled] { opacity: 0.55; cursor: progress; }
+      .colunas { display: grid; gap: 24px; grid-template-columns: 1fr; align-items: start; }
+      @media (min-width: 960px) { .colunas { grid-template-columns: 1.15fr 1fr; } }
+      .cartao {
+        background: var(--papel);
+        border: 1px solid var(--borda);
+        border-radius: 12px;
+        padding: 18px 20px;
+        margin-bottom: 16px;
+      }
+      h2 {
+        font: 600 0.75rem/1.4 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--suave);
+        margin: 0 0 12px;
+      }
+      .resposta { white-space: pre-wrap; }
+      .abstencao { border-left: 4px solid var(--aviso); }
+      .abstencao .rotulo {
+        font: 600 0.8rem ui-sans-serif, system-ui, sans-serif;
+        color: var(--aviso);
+      }
+      .citacao { border-top: 1px solid var(--borda); padding-top: 12px; margin-top: 12px; }
+      .citacao:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+      .citacao blockquote {
+        margin: 6px 0 0;
+        padding-left: 12px;
+        border-left: 3px solid var(--borda);
+        color: var(--suave);
+        font-size: 0.94rem;
+      }
+      a { color: var(--acento); }
+      .trecho { border-top: 1px solid var(--borda); padding: 14px 0; }
+      .trecho:first-of-type { border-top: 0; padding-top: 0; }
+      .rotulo { font-weight: 600; }
+      .scores {
+        font: 0.74rem/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+        color: var(--suave);
+        margin: 2px 0 8px;
+      }
+      .corpo {
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+        max-height: 13rem;
+        overflow-y: auto;
+      }
+      .corpo.aberto { max-height: none; }
+      mark { background: var(--realce); color: inherit; padding: 0 1px; }
+      .link-abrir {
+        background: none;
+        border: 0;
+        padding: 0;
+        color: var(--acento);
+        font: 0.78rem ui-sans-serif, system-ui, sans-serif;
+        cursor: pointer;
+      }
+      .vazio, .erro { color: var(--suave); font-size: 0.92rem; }
+      .erro { color: var(--acento); }
+      footer {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 8px 16px 40px;
+        color: var(--suave);
+        font: 0.75rem ui-monospace, Menlo, monospace;
+      }
+    </style>
   </head>
   <body>
-    <!--
-      Placeholder do front de teste.
+    <div id="app">
+      <header>
+        <h1>Consulta Jurídica</h1>
+        <p class="aviso">{{ aviso }}</p>
+        <form @submit.prevent="consultar">
+          <input
+            type="text"
+            v-model="pergunta"
+            placeholder="o consumidor pode desistir de uma compra feita pela internet?"
+            required
+            minlength="3"
+          />
+          <input type="date" v-model="dataReferencia" required title="direito vigente em" />
+          <button :disabled="carregando">
+            {{ carregando ? "consultando…" : "consultar" }}
+          </button>
+        </form>
+      </header>
 
-      Decidido: Vue 3 por CDN, sem build. Servido por esta mesma origem pelo FastAPI,
-      portanto sem CORS e sem segundo dev server.
+      <main>
+        <p v-if="erro" class="erro">{{ erro }}</p>
 
-      Requisito quando for implementado: além da resposta, exibir os trechos recuperados
-      com os scores de fusão e de rerank. Um chat que mostra só o parágrafo final não
-      permite distinguir falha de recuperação de alucinação do modelo, que são problemas
-      diferentes com correções diferentes.
-    -->
-    <main id="app">Front ainda não implementado.</main>
+        <div class="colunas" v-if="resposta">
+          <section>
+            <div class="cartao" :class="{ abstencao: resposta.abstencao }">
+              <h2>Resposta</h2>
+              <p v-if="resposta.abstencao" class="rotulo">
+                {{ textoAbstencao[resposta.abstencao] || resposta.abstencao }}
+              </p>
+              <div class="resposta">{{ resposta.resposta }}</div>
+            </div>
+
+            <div class="cartao" v-if="resposta.citacoes.length">
+              <h2>Citações ({{ resposta.citacoes.length }})</h2>
+              <div class="citacao" v-for="(c, i) in resposta.citacoes" :key="i">
+                <a :href="c.url" target="_blank" rel="noopener">{{ c.rotulo }}</a>
+                <blockquote v-if="c.texto_citado">{{ c.texto_citado }}</blockquote>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <div class="cartao">
+              <h2>Trechos recuperados ({{ resposta.trechos_recuperados.length }})</h2>
+              <p class="vazio" v-if="!resposta.trechos_recuperados.length">
+                A busca não devolveu nenhum dispositivo para esta data.
+              </p>
+              <div class="trecho" v-for="(t, i) in trechos" :key="t.dispositivo">
+                <div class="rotulo">{{ t.rotulo }}</div>
+                <div class="scores">
+                  fusão {{ fmt(t.score_fusao) }} · rerank {{ fmt(t.score_rerank) }}
+                </div>
+                <div class="corpo" :class="{ aberto: abertos[i] }">
+                  <template v-for="(p, j) in t.partes" :key="j"
+                    ><mark v-if="p.citado">{{ p.texto }}</mark
+                    ><template v-else>{{ p.texto }}</template></template
+                  >
+                </div>
+                <button class="link-abrir" @click="abertos[i] = !abertos[i]">
+                  {{ abertos[i] ? "recolher" : "ver inteiro" }}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <p class="vazio" v-else-if="!carregando && !erro">
+          Pergunte alguma coisa. A primeira consulta demora mais: os modelos de embedding e
+          de rerank são carregados uma vez.
+        </p>
+      </main>
+
+      <footer v-if="saude">
+        backend {{ saude.backend }} · citações nativas
+        {{ saude.citacoes_nativas ? "sim" : "não" }} · rerank {{ saude.reranker }} ·
+        expansão {{ saude.expansao }}
+      </footer>
+    </div>
+
+    <script>
+      const { createApp, ref, computed, reactive, onMounted } = Vue;
+
+      createApp({
+        setup() {
+          const hoje = new Date().toISOString().slice(0, 10);
+          const pergunta = ref("");
+          const dataReferencia = ref(hoje);
+          const resposta = ref(null);
+          const saude = ref(null);
+          const erro = ref("");
+          const carregando = ref(false);
+          const abertos = reactive({});
+
+          const aviso = computed(
+            () =>
+              saude.value?.aviso ??
+              "Ferramenta de pesquisa em legislação, não consulta jurídica.",
+          );
+
+          const textoAbstencao = {
+            sem_candidatos: "Nada recuperado — a busca não achou dispositivo algum.",
+            contexto_insuficiente:
+              "Sem fundamento nos trechos — o modelo leu o que foi recuperado e disse que não basta.",
+          };
+
+          /**
+           * Realça, dentro do trecho, o texto que a resposta citou.
+           *
+           * As citações nativas devolvem o texto extraído do documento que enviamos, e o
+           * documento é exatamente este trecho — então `indexOf` acha. É a prova visual de
+           * que a citação é verificável: o que está entre aspas na resposta está aqui,
+           * caractere a caractere.
+           */
+          function realcar(texto, citacoes) {
+            const marcas = citacoes
+              .map((c) => c.texto_citado)
+              .filter((q) => q && texto.includes(q))
+              .sort((a, b) => b.length - a.length);
+            let partes = [{ texto, citado: false }];
+            for (const marca of marcas) {
+              const proximas = [];
+              for (const parte of partes) {
+                if (parte.citado) {
+                  proximas.push(parte);
+                  continue;
+                }
+                const pedacos = parte.texto.split(marca);
+                pedacos.forEach((pedaco, i) => {
+                  if (i > 0) proximas.push({ texto: marca, citado: true });
+                  if (pedaco) proximas.push({ texto: pedaco, citado: false });
+                });
+              }
+              partes = proximas;
+            }
+            return partes;
+          }
+
+          const trechos = computed(() =>
+            (resposta.value?.trechos_recuperados ?? []).map((t) => ({
+              ...t,
+              partes: realcar(t.texto, resposta.value.citacoes),
+            })),
+          );
+
+          const fmt = (v) => (v === null || v === undefined ? "—" : v.toFixed(4));
+
+          async function consultar() {
+            carregando.value = true;
+            erro.value = "";
+            resposta.value = null;
+            Object.keys(abertos).forEach((k) => delete abertos[k]);
+            try {
+              const r = await fetch("/v1/consultas", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  pergunta: pergunta.value,
+                  data_referencia: dataReferencia.value,
+                }),
+              });
+              const corpo = await r.json();
+              if (!r.ok) {
+                erro.value =
+                  corpo.detalhe ?? corpo.detail?.[0]?.msg ?? `erro ${r.status}`;
+                return;
+              }
+              resposta.value = corpo;
+            } catch (e) {
+              erro.value = `falha de rede: ${e.message}`;
+            } finally {
+              carregando.value = false;
+            }
+          }
+
+          onMounted(async () => {
+            try {
+              saude.value = await (await fetch("/v1/saude")).json();
+            } catch {
+              // O front funciona sem isto; é só o rodapé de procedência.
+            }
+          });
+
+          return {
+            pergunta,
+            dataReferencia,
+            resposta,
+            trechos,
+            saude,
+            aviso,
+            erro,
+            carregando,
+            abertos,
+            textoAbstencao,
+            consultar,
+            fmt,
+          };
+        },
+      }).mount("#app");
+    </script>
   </body>
 </html>

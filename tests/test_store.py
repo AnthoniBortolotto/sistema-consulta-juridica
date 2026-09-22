@@ -255,3 +255,37 @@ def test_iter_para_indexar_nao_filtra_vigencia(corpus_cdc):
 
 def test_obter_dispositivo_inexistente_e_none(conn):
     assert queries.obter_dispositivo(conn, "urn:lex:br:federal:lei:1990-09-11;8078!art1") is None
+
+
+def test_conexao_de_leitura_atravessa_threads(tmp_path, norma_cdc, arvore_cdc):
+    """Defeito achado ao subir a API: a conexão nasce no lifespan e é usada pelas threads
+    do threadpool — é assim que o FastAPI despacha endpoints `def`. Sem isso, a primeira
+    consulta morre com "SQLite objects created in a thread can only be used in that same
+    thread", e só em produção, porque todo teste roda numa thread só."""
+    import threading
+
+    caminho = tmp_path / "corpus.sqlite3"
+    escrita = db.conectar(caminho)
+    try:
+        db.aplicar_schema(escrita)
+        with db.transacao(escrita):
+            writer.upsert_norma(escrita, norma_cdc)
+            writer.substituir_dispositivos(escrita, URN_CDC, arvore_cdc)
+    finally:
+        escrita.close()
+
+    leitura = db.conectar(caminho, somente_leitura=True)
+    resultado: list = []
+
+    def consultar():
+        try:
+            resultado.append(len(queries.iter_para_indexar(leitura).__next__().id))
+        except Exception as e:  # noqa: BLE001 - é o erro que o teste existe para pegar
+            resultado.append(e)
+
+    t = threading.Thread(target=consultar)
+    t.start()
+    t.join()
+    leitura.close()
+
+    assert not isinstance(resultado[0], Exception), resultado[0]
