@@ -224,6 +224,11 @@ uv run uvicorn consulta_juridica.api.app:criar_app --factory --reload
 
 `ANTHROPIC_API_KEY` só é necessária para a etapa de geração. Ingestão, indexação e
 avaliação de recuperação rodam sem chave — os modelos de embedding e de rerank são locais.
+O cliente da Anthropic é construído sem validar a chave, então a falta dela só aparece na
+primeira chamada, como erro de autenticação.
+
+Sem chave, `CJ_BACKEND_LLM=cli` usa o Claude Code por subprocess (`claude -p`). Serve para
+ver o sistema responder; **não** produz citações nativas nem números de avaliação.
 
 ---
 
@@ -241,7 +246,7 @@ avaliação de recuperação rodam sem chave — os modelos de embedding e de re
 
 - [x] Ingestão com parser estrutural (CF/88 primeiro)
 - [x] Índice híbrido e busca com filtro de vigência
-- [ ] API de consulta com citations
+- [x] Geração com citations nativas (API de consulta: fase seguinte)
 - [ ] Front de teste com painel de recuperação
 - [x] Golden set e eval de recuperação
 - [ ] Expansão por remissões (1 hop)

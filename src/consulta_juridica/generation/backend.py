@@ -8,6 +8,8 @@ depois é refactor em cascata por todo o projeto — se for para mudar, mude ced
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -32,11 +34,35 @@ class Pedido:
     sistema: str
     documentos: tuple[BlocoDocumento, ...]
     pergunta: str
-    max_tokens: int = 2048
+    max_tokens: int = 8192
 
     def chave(self) -> str:
-        """sha256 canônico do pedido, usado pelo cache em disco."""
-        raise NotImplementedError
+        """sha256 canônico do pedido, usado pelo cache em disco.
+
+        Entra TUDO que muda a resposta: o texto de sistema (que carrega a data de
+        referência e a versão do prompt), cada documento inteiro e a pergunta. Se o
+        chunking ou a recuperação mudarem, o texto dos documentos muda e a chave muda
+        sozinha — que é a propriedade desejada: reexecutar o eval depois de mexer só no
+        rerank não re-cobra as consultas cujo contexto ficou igual.
+
+        O modelo NÃO entra aqui, de propósito: `Pedido` é independente de backend. Quem
+        separa modelos é `cache.BackendComCache`, pelo diretório.
+        """
+        canonico = json.dumps(
+            {
+                "sistema": self.sistema,
+                "pergunta": self.pergunta,
+                "max_tokens": self.max_tokens,
+                "documentos": [
+                    [d.ref, d.titulo, d.contexto, d.texto, d.dispositivo_id]
+                    for d in self.documentos
+                ],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

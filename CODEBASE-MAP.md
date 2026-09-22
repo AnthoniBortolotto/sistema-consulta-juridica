@@ -48,12 +48,12 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 ## Geração
 
-- `src/consulta_juridica/generation/backend.py` — `LLMBackend`, `Pedido`, `BlocoDocumento`. Decisão sync-não-async registrada aqui.
-- `src/consulta_juridica/generation/claude_api.py` — Messages API com citations nativas.
+- `src/consulta_juridica/generation/backend.py` — `LLMBackend`, `Pedido`, `BlocoDocumento`, e a chave de cache do pedido. Decisão sync-não-async registrada aqui.
+- `src/consulta_juridica/generation/claude_api.py` — Messages API com citations nativas; documento de texto puro, `char_location`. Leia antes de mexer na forma da requisição.
 - `src/consulta_juridica/generation/claude_cli.py` — `claude -p` por subprocess, sem citations.
 - `src/consulta_juridica/generation/cache.py` — decorator de cache em disco sobre qualquer backend.
-- `src/consulta_juridica/generation/prompt.py` — todo o texto de instrução e `VERSAO_PROMPT`.
-- `src/consulta_juridica/generation/citacoes.py` — citação bruta → `Citacao` de domínio.
+- `src/consulta_juridica/generation/prompt.py` — todo o texto de instrução, `VERSAO_PROMPT` e a marca de abstenção. O corpo do documento é o trecho cru: ver a invariante no docstring.
+- `src/consulta_juridica/generation/citacoes.py` — citação bruta → `Citacao` de domínio: deslocamento de caractere → dispositivo, e o que é descartado.
 
 ## API
 
@@ -79,6 +79,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
 - `tests/test_recuperacao.py` — contrato da chamada ao Qdrant (o filtro nos prefetch), rerank e o `Recuperador` ponta a ponta. Pula sem Qdrant.
 - `tests/test_eval.py` — métricas puras, validação do golden e a agregação do relatório.
+- `tests/test_geracao.py` — prompt, cache, resolução de citação e os dois backends, com dublês. Não chama o Claude.
 - `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
 - `tests/test_indexacao.py` — coleção, drift, apagar-antes-de-inserir e os estágios. Pula sem Qdrant.
 - `tests/test_tls.py` — a verificação TLS nunca pode ser desligada.
@@ -92,10 +93,14 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 > **Implementados:** o núcleo (`models`, `config`, `errors`, `urn`, `tls`, `embedding`,
 > `vectorstore`), o `store/` inteiro, a ingestão inteira (`fontes`, `parser`, `chunking`,
 > `indexer`, `pipeline`, `__main__`), a recuperação inteira (`filtros`, `busca`, `rerank`,
-> `expansao`, `pipeline`, `__main__`), `service.construir_recuperador` e o eval de
-> recuperação (`golden`, `metrics.recall_em_k`/`mrr`, `run.avaliar_recuperacao`,
-> `eval/__main__`).
+> `expansao`, `pipeline`, `__main__`), a geração inteira (`prompt`, `claude_api`,
+> `claude_cli`, `cache`, `citacoes`), o `service.py` inteiro, e o eval de recuperação
+> (`golden`, `metrics.recall_em_k`/`mrr`, `run.avaliar_recuperacao`, `eval/__main__`).
 >
 > **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> `generation/`, `api/`, o ponta a ponta do eval (`acuracia_citacao`, `taxa_abstencao`,
-> `avaliar_ponta_a_ponta`) e o resto de `service.py`.
+> `api/` e o ponta a ponta do eval (`acuracia_citacao`, `taxa_abstencao`,
+> `avaliar_ponta_a_ponta`).
+>
+> **Sem execução real contra a API:** a geração não foi exercitada contra a Messages API —
+> não há chave nesta máquina. O contrato está coberto por dublês; a primeira chamada de
+> verdade é da fase 8.
