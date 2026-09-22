@@ -24,6 +24,9 @@ dependencies = [
     "httpx>=0.28",
     "lxml>=5.3",
     "beautifulsoup4>=4.12",
+    # Verificação TLS pelo truststore do SO: o certifi não fecha a cadeia em máquina
+    # com inspeção de TLS, e o huggingface_hub fixa o certifi por dentro. Ver `tls.py`.
+    "truststore>=0.10",
 ]
 
 [dependency-groups]

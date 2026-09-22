@@ -108,8 +108,20 @@ def test_encoding_explicito_tem_precedencia():
 
 
 def test_corpus_real_e_cp1252():
-    """Prova contra o arquivo baixado, não contra uma string de teste."""
-    bruto = Path("data/raw/cf88.htm").read_bytes()
+    """Prova contra o arquivo baixado, não contra uma string de teste.
+
+    Pula quando `data/raw` está vazio: o diretório é ignorado pelo git, então num clone
+    novo ele não existe. Teste que exige corpus baixado para passar seria um teste que
+    falha por motivo errado.
+    """
+    from consulta_juridica.config import Settings
+    from consulta_juridica.ingest.fontes import carregar, listar_brutos
+
+    brutos = listar_brutos(Settings().dir_raw)
+    if not brutos:
+        pytest.skip("sem corpus em data/raw — `python -m consulta_juridica.ingest baixar`")
+
+    bruto = carregar(brutos[0]).conteudo
     with pytest.raises(UnicodeDecodeError):
         bruto.decode("utf-8")
-    assert "Constituição" in doc(bruto).texto()
+    assert "ç" in doc(bruto).texto(), "a detecção precisa recuperar os acentos"

@@ -15,9 +15,10 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `src/consulta_juridica/models.py` — tipos de domínio (Dispositivo, Chunk, Trecho, Citacao, Resposta) e `ordem_documento`. Contrato central; `ChunkPayload` é fronteira de serialização com o Qdrant.
 - `src/consulta_juridica/config.py` — `Settings`. Único módulo que lê variáveis de ambiente.
 - `src/consulta_juridica/errors.py` — exceções de domínio.
+- `src/consulta_juridica/tls.py` — confiança TLS pelo truststore do SO. Olhe aqui se um download falhar com `CERTIFICATE_VERIFY_FAILED`.
 - `src/consulta_juridica/urn.py` — ID canônico do dispositivo: esquema do fragmento, segmento por rótulo, apelidos do corpus, rótulo humano <-> ID, `rotulo_completo_de`. Leia o docstring antes de inventar um ID.
-- `src/consulta_juridica/vectorstore.py` — vocabulário da coleção Qdrant (nomes de vetor e de campo), sentinela de vigência, `id_ponto`. Olhe aqui antes de escrever qualquer nome de payload.
-- `src/consulta_juridica/embedding.py` — `Encoder`: denso (bge-m3) e esparso (BM25). Indexação e consulta lado a lado, de propósito.
+- `src/consulta_juridica/vectorstore.py` — vocabulário da coleção Qdrant (nomes de vetor e de campo), sentinela de vigência, `id_ponto`, criação da coleção e checagem de drift. Olhe aqui antes de escrever qualquer nome de payload.
+- `src/consulta_juridica/embedding.py` — `Encoder`: denso (bge-m3) e esparso (BM25). Indexação e consulta lado a lado, de propósito — `embed` para documento, `query_embed` para pergunta.
 - `src/consulta_juridica/service.py` — `Servico` e composition root. Único lugar que constrói as dependências.
 
 ## Fonte da verdade — SQLite
@@ -77,6 +78,8 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `tests/test_filtros.py` — vigência. Prioridade máxima: erro aqui não levanta exceção.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
 - `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
+- `tests/test_indexacao.py` — coleção, drift, apagar-antes-de-inserir e os estágios. Pula sem Qdrant.
+- `tests/test_tls.py` — a verificação TLS nunca pode ser desligada.
 - `tests/test_urn.py` — esquema de ID, numeral romano, colisão ADCT, golden -> ID.
 - `tests/test_store.py` — conexão, escrita, leitura e o vazamento de vigência pelo SQLite.
 - `tests/test_fontes.py` — procedência, conferência de sha256 e detecção de encoding.
@@ -84,10 +87,9 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 
 ---
 
-> **Implementados:** `urn.py`, `store/` (`db`, `writer`, `queries`) e a aquisição/parsing
-> em `ingest/` (`fontes`, `parser`, `chunking`), mais `models`, `config`, `errors` e `vectorstore`,
-> que já nasceram completos.
+> **Implementados:** o núcleo (`models`, `config`, `errors`, `urn`, `tls`, `embedding`,
+> `vectorstore`), o `store/` inteiro e a ingestão inteira (`fontes`, `parser`, `chunking`,
+> `indexer`, `pipeline`, `__main__`).
 >
 > **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> `ingest/indexer`, `ingest/pipeline`, `ingest/__main__`,
 > `retrieval/`, `generation/`, `api/`, `eval/` e `service.py`.

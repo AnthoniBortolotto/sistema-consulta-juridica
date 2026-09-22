@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import ssl
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,6 +18,7 @@ from typing import Final, Protocol
 import httpx
 
 from ..errors import ConsultaJuridicaError
+from ..tls import contexto as contexto_tls
 from ..urn import CORPUS, urn_da_norma
 
 #: O Planalto devolve zero byte e estoura o timeout sem User-Agent de navegador. Medido
@@ -34,20 +34,6 @@ ENCODING_PLANALTO: Final = "cp1252"
 
 TIMEOUT_PADRAO: Final = 60.0
 SUFIXO_META: Final = ".meta.json"
-
-
-def contexto_tls() -> ssl.SSLContext:
-    """Contexto TLS ancorado no truststore do sistema operacional.
-
-    O httpx verifica contra o bundle do `certifi`, que nesta máquina não fecha a cadeia
-    do planalto.gov.br (`CERTIFICATE_VERIFY_FAILED: unable to get local issuer`). O
-    `ssl.create_default_context()` carrega as raízes do SO, que é o que o navegador e o
-    curl usam, e fecha.
-
-    Desligar a verificação resolveria em uma linha e está fora de questão: o sha256 de
-    procedência só vale alguma coisa se os bytes vieram comprovadamente do Planalto.
-    """
-    return ssl.create_default_context()
 
 
 class FalhaDownload(ConsultaJuridicaError):
@@ -232,7 +218,28 @@ def carregar(caminho: Path) -> DocumentoBruto:
     )
 
 
+def listar_brutos(dir_raw: Path) -> list[Path]:
+    """Brutos COM procedência, em ordem estável.
+
+    Lista pelos `.meta.json` e não por extensão: um `.htm` solto no diretório é download
+    manual ou sobra de experimento, e ingeri-lo gravaria um `sha256_origem` que não
+    identifica nada. `orfaos()` mostra o que ficou de fora.
+    """
+    return sorted(
+        meta.with_name(meta.name[: -len(SUFIXO_META)])
+        for meta in dir_raw.glob(f"*{SUFIXO_META}")
+    )
+
+
+def orfaos(dir_raw: Path) -> list[Path]:
+    """Arquivos no diretório de brutos que não têm procedência."""
+    com_meta = {p.name for p in listar_brutos(dir_raw)}
+    return sorted(
+        p for p in dir_raw.glob("*.htm") if p.name not in com_meta and SUFIXO_META not in p.name
+    )
+
+
 def iter_brutos(dir_raw: Path) -> Iterator[DocumentoBruto]:
     """Todos os brutos salvos, para reparsear o corpus inteiro sem rede."""
-    for meta in sorted(dir_raw.glob(f"*{SUFIXO_META}")):
-        yield carregar(meta.with_name(meta.name[: -len(SUFIXO_META)]))
+    for caminho in listar_brutos(dir_raw):
+        yield carregar(caminho)
