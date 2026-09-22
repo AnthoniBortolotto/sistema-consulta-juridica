@@ -34,15 +34,26 @@ class BackendComCache(LLMBackend):
         self.dir_cache = dir_cache
         self.nome = f"{interno.nome}+cache"
         self.suporta_citacoes = interno.suporta_citacoes
+        #: Contadores da vida do processo. O eval precisa deles para não somar ao custo
+        #: da rodada o que ela não pagou: o `uso` de uma resposta lida do cache é o da
+        #: chamada original, feita dias antes.
+        self.acertos = 0
+        self.faltas = 0
 
     def _caminho(self, pedido: Pedido) -> Path:
         return self.dir_cache / _slug(self.interno.nome) / f"{pedido.chave()}.json"
 
+    def em_cache(self, pedido: Pedido) -> bool:
+        """A resposta a este pedido já existe? Não chama o modelo nem conta como acerto."""
+        return self._caminho(pedido).exists()
+
     def gerar(self, pedido: Pedido) -> ResultadoGeracao:
         caminho = self._caminho(pedido)
         if caminho.exists():
+            self.acertos += 1
             return _desserializar(json.loads(caminho.read_text(encoding="utf-8")))
 
+        self.faltas += 1
         resultado = self.interno.gerar(pedido)
         caminho.parent.mkdir(parents=True, exist_ok=True)
         # Escrita atômica: uma interrupção no meio do eval deixaria um JSON truncado, e o

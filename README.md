@@ -188,7 +188,33 @@ uv run python -m consulta_juridica.eval recuperacao --sem-rerank
 uv run python -m consulta_juridica.eval recuperacao
 ```
 
-*Acurácia de citação e taxa de abstenção dependem da geração, ainda não implementada.*
+### Resposta e citação — a medir
+
+Implementado e **ainda não executado**: medir exige chamar o modelo, e os números abaixo
+só existem depois da primeira rodada paga. Estimativa, calculada sem gastar nada:
+13 perguntas, ~52 mil tokens de entrada no Claude Opus 5, **US$ 0,42 a 2,92** — a faixa é
+larga porque a saída depende de quanto o modelo pensa. Reexecutar sai de graça: as
+respostas ficam em cache pelo hash do pedido.
+
+| métrica | o que mede | valor |
+|---|---|---|
+| acurácia de citação | das citações feitas, quantas caem no dispositivo esperado ou dentro dele | *a medir* |
+| abstenção correta | das perguntas sem resposta no corpus, em quantas o sistema admite a lacuna | *a medir* |
+| abstenção indevida | das perguntas respondíveis, em quantas o sistema se recusa à toa | *a medir* |
+
+As duas taxas de abstenção andam juntas porque cada uma sozinha se ganha trapaceando: um
+sistema que sempre se abstém acerta todas as perguntas sem resposta. A acurácia de citação
+conta só as perguntas que o sistema respondeu e devia responder — a abstenção indevida já é
+falha, medida à parte, e somá-la ali contaria a mesma falha duas vezes.
+
+```bash
+uv run python -m consulta_juridica.eval e2e              # estima o custo e sai
+uv run python -m consulta_juridica.eval e2e --confirmar  # executa (requer ANTHROPIC_API_KEY)
+```
+
+O eval recusa o backend de assinatura (`CJ_BACKEND_LLM=cli`): sem citations nativas, as
+citações dele são âncoras que o modelo pode ou não emitir, e um número medido assim não
+significa nada.
 
 ---
 
@@ -239,6 +265,49 @@ ver o sistema responder; **não** produz citações nativas nem números de aval
 - Cobertura de jurisprudência é estreita, pelos motivos descritos acima.
 - Direito sumulado e entendimento consolidado mudam; o corpus é um retrato datado.
 - Sem cobertura de legislação estadual ou municipal.
+
+### A letra da lei não é o direito vigente — o caso da prisão civil
+
+A pergunta `lim-01` do golden set existe para deixar este limite à vista. "Prisão civil por
+dívida é permitida no Brasil?" O art. 5º, LXVII, da Constituição responde que não, **salvo**
+a do devedor de pensão alimentícia e a do depositário infiel. É o texto vigente, e é o que
+o sistema recupera e cita — corretamente.
+
+Mas a Súmula Vinculante 25 do STF declarou ilícita a prisão do depositário infiel. A
+resposta juridicamente certa hoje é "só a do devedor de alimentos", e com apenas a
+legislação no corpus o sistema não tem como saber disso. A resposta sai fiel à fonte e
+incompleta como direito.
+
+Não há correção possível sem jurisprudência no corpus, e mascarar o caso com uma regra
+especial seria esconder exatamente o que ele mostra: **um sistema que só lê lei responde o
+que a lei diz, não o que os tribunais decidiram sobre ela.** Por isso a pergunta fica no
+golden, com o esperado apontando para o dispositivo — o que se mede é se a citação está
+certa, não se o direito está completo.
+
+### Vigência com granularidade de ano
+
+As notas do Planalto dizem "Redação dada pela Emenda Constitucional nº 90, de 2015", sem a
+data da publicação. O sistema grava a vigência a partir de 1º de janeiro do ano; obter a
+data exata exigiria baixar e interpretar cada emenda. Numa consulta retroativa, o erro
+máximo é de cerca de um ano, na direção de antecipar a nova redação. Redações riscadas sem
+ano extraível ficam com a revogação na data de publicação da norma — são 155 no corpus
+atual — e com isso fora de toda consulta. Conservador na direção certa, porque nunca
+apresenta texto morto como vigente, mas as torna invisíveis para a pesquisa histórica.
+
+### O reranker não enxerga a data
+
+Medido na avaliação de recuperação: numa consulta retroativa, a resposta certa pode ser
+justamente o texto que ainda **não** mencionava o termo perguntado. "O transporte é um
+direito social?" em 2010 deve trazer o art. 6º da CF na redação anterior à EC 90/2015, que
+não fala em transporte. A fusão o põe em primeiro; o cross-encoder, que pontua por
+conteúdo, o empurra para sexto. O filtro de vigência garante que o texto errado nunca
+aparece — mas não garante que o certo venha em primeiro.
+
+### Remissão só dentro da mesma norma
+
+"Na forma do art. 37, § 6º" é resolvido; "nos termos da Lei nº 8.078" não é, porque exigiria
+um catálogo de toda a legislação citada. A remissão entre normas se perde, e nenhuma é
+inventada.
 
 ---
 

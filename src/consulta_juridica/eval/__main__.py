@@ -60,6 +60,15 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     r.add_argument("--threads", type=int, default=os.cpu_count())
     r.add_argument("--json", action="store_true", help="relatório completo em JSON")
+
+    e.add_argument(
+        "--confirmar",
+        action="store_true",
+        help="executa e GASTA. Sem isto, só estima o custo e sai — o que já está no cache "
+        "sai de graça, o resto é cobrado",
+    )
+    e.add_argument("--threads", type=int, default=os.cpu_count())
+    e.add_argument("--json", action="store_true", help="relatório completo em JSON")
     return p
 
 
@@ -139,12 +148,88 @@ def _linha(rel: RelatorioRecuperacao, ks: tuple[int, ...]) -> str:
 
 
 def _e2e(args, cfg) -> int:
-    print(
-        "eval ponta a ponta ainda não existe: depende da geração (fase 7).\n"
-        "Use `recuperacao` — mede sem gastar token.",
-        file=sys.stderr,
+    from ..service import construir_backend, construir_servico
+    from .run import avaliar_ponta_a_ponta, estimar_ponta_a_ponta
+
+    # Antes de carregar ~26 s de modelo: o backend sem citations é recusado de qualquer
+    # jeito, e descobrir isso depois da carga é desperdício.
+    if not construir_backend(cfg).suporta_citacoes:
+        print(
+            f"o backend {cfg.backend_llm!r} não tem citations nativas; a acurácia de citação "
+            "medida por ele não significa nada. Use CJ_BACKEND_LLM=api.",
+            file=sys.stderr,
+        )
+        return 1
+
+    itens = carregar(args.golden)
+    print("carregando modelos…", flush=True)
+    svc = construir_servico(cfg, threads=args.threads)
+    try:
+        for p in validar(itens, svc.recuperador.conn):
+            print(f"golden: {p}", file=sys.stderr)
+
+        est = estimar_ponta_a_ponta(svc, itens)
+        print()
+        print(
+            f"{est.n_itens} perguntas: {est.do_cache} no cache, "
+            f"{est.sem_candidatos} sem trecho (grátis), {est.a_pagar} a pagar"
+        )
+        if est.a_pagar:
+            faixa = (
+                f"US$ {est.custo_min_usd:.2f} a {est.custo_max_usd:.2f}"
+                if est.custo_min_usd is not None
+                else "desconhecido (modelo fora da tabela de preços)"
+            )
+            print(f"  ~{est.tokens_entrada:,} tokens de entrada em {est.modelo}: {faixa}")
+            print("  (estimativa grosseira: a saída depende de quanto o modelo pensa)")
+
+        if not args.confirmar:
+            print()
+            print("nada foi gasto. Rode de novo com --confirmar para executar.")
+            return 0
+
+        rel = avaliar_ponta_a_ponta(svc, itens)
+    finally:
+        svc.recuperador.conn.close()
+
+    if args.json:
+        print(json.dumps(dataclasses.asdict(rel), ensure_ascii=False, indent=2, default=str))
+    else:
+        _imprimir_e2e(rel)
+    return 0
+
+
+def _imprimir_e2e(rel) -> None:
+    custo = (
+        f"US$ {rel.custo_estimado_usd:.2f}"
+        if rel.custo_estimado_usd is not None
+        else "desconhecido"
     )
-    return 1
+    print()
+    print(f"backend={rel.backend}  modelo={rel.modelo}  prompt={rel.versao_prompt}")
+    print(
+        f"{rel.n_itens} perguntas em {rel.duracao_s:.0f}s, "
+        f"{rel.chamadas_pagas} chamadas pagas, {custo}"
+    )
+    print()
+    print(f"  acurácia de citação   {rel.acuracia_citacao:.3f}")
+    print(f"  abstenção correta     {rel.abstencao_correta:.3f}   (das que deviam)")
+    print(f"  abstenção indevida    {rel.abstencao_indevida:.3f}   (das que não deviam)")
+    print(f"  taxa de abstenção     {rel.taxa_abstencao:.3f}")
+    print(f"  respostas sem citação {rel.sem_citacao}")
+
+    print()
+    print("por pergunta:")
+    for r in rel.itens:
+        if r.abstencao:
+            situacao = f"absteve ({r.abstencao})" + (" ✓" if r.deve_abster else " ✗")
+        elif r.deve_abster:
+            situacao = "RESPONDEU quando devia se abster ✗"
+        else:
+            situacao = f"{r.corretas}/{len(r.citados)} citações corretas"
+        print(f"  {r.id:8} {situacao}")
+        for c in r.citados:
+            print(f"             {c}")
 
 
 _MODOS = {"validar": _validar, "recuperacao": _recuperacao, "e2e": _e2e}

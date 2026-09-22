@@ -65,8 +65,8 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 ## Eval
 
 - `src/consulta_juridica/eval/golden.py` — golden set anotado e sua validação contra o SQLite.
-- `src/consulta_juridica/eval/metrics.py` — recall@k, MRR, acurácia de citação, taxa de abstenção. Funções puras; o ranking é uma lista de conjuntos, um por trecho.
-- `src/consulta_juridica/eval/run.py` — `avaliar_recuperacao` (sem LLM, com quebra por mecanismo) e `avaliar_ponta_a_ponta`.
+- `src/consulta_juridica/eval/metrics.py` — recall@k, MRR, acurácia de citação (`cita_dentro`: o esperado ou um filho dele), taxa de abstenção. Funções puras; o ranking é uma lista de conjuntos, um por trecho.
+- `src/consulta_juridica/eval/run.py` — `avaliar_recuperacao` (sem LLM, com quebra por mecanismo), `avaliar_ponta_a_ponta`, `estimar_ponta_a_ponta` (custo sem chamar o modelo) e a tabela de preços.
 - `src/consulta_juridica/eval/__main__.py` — CLI do eval.
 
 ## Dados anotados — versionados
@@ -79,6 +79,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
 - `tests/test_recuperacao.py` — contrato da chamada ao Qdrant (o filtro nos prefetch), rerank e o `Recuperador` ponta a ponta. Pula sem Qdrant.
 - `tests/test_eval.py` — métricas puras, validação do golden e a agregação do relatório.
+- `tests/test_eval_e2e.py` — acurácia de citação, as três taxas de abstenção e o custo que o cache não cobra duas vezes.
 - `tests/test_geracao.py` — prompt, cache, resolução de citação e os dois backends, com dublês. Não chama o Claude.
 - `tests/test_api.py` — contrato HTTP, injeção do serviço e o estático. Serviço dublê, sem carregar modelo.
 - `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
@@ -96,13 +97,12 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 > `indexer`, `pipeline`, `__main__`), a recuperação inteira (`filtros`, `busca`, `rerank`,
 > `expansao`, `pipeline`, `__main__`), a geração inteira (`prompt`, `claude_api`,
 > `claude_cli`, `cache`, `citacoes`), o `service.py` inteiro, a API inteira (`schemas`,
-> `deps`, `app`, `web/index.html`) e o eval de recuperação (`golden`,
-> `metrics.recall_em_k`/`mrr`, `run.avaliar_recuperacao`, `eval/__main__`).
+> `deps`, `app`, `web/index.html`) e o eval inteiro (`golden`, `metrics`, `run`,
+> `eval/__main__`).
 >
-> **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> só o ponta a ponta do eval (`acuracia_citacao`, `taxa_abstencao`,
-> `avaliar_ponta_a_ponta`).
+> **Esqueleto:** nenhum. Todo módulo listado aqui está implementado.
 >
 > **Sem execução real contra a API:** a geração nunca foi exercitada contra a Messages API —
-> não há chave nesta máquina. O contrato está coberto por dublês, e a API HTTP roda ponta a
-> ponta com recuperação real: o que falta é a chamada ao modelo.
+> não há chave nesta máquina. O contrato está coberto por dublês, e a API HTTP e a
+> estimativa de custo do eval rodam ponta a ponta com recuperação real: o que falta é a
+> chamada ao modelo.

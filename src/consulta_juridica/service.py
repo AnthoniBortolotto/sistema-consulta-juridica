@@ -16,8 +16,8 @@ from typing import Final
 
 from .config import Settings
 from .generation import citacoes, prompt
-from .generation.backend import LLMBackend
-from .models import MotivoAbstencao, Resposta
+from .generation.backend import LLMBackend, Pedido
+from .models import MotivoAbstencao, Resposta, Trecho
 from .retrieval.filtros import Criterios
 from .retrieval.pipeline import Recuperador
 from .store import queries
@@ -59,12 +59,8 @@ class Servico:
         pergunta fora do corpus; `CONTEXTO_INSUFICIENTE` é o modelo lendo os trechos e
         dizendo que não bastam, que é o comportamento desejado em `abs-01` e `abs-02`.
         """
-        trechos = self.recuperador.recuperar(
-            c.pergunta,
-            Criterios(data_referencia=c.data_referencia, normas=c.normas),
-            k_final=c.top_k,
-        )
-        if not trechos:
+        trechos, pedido = self.montar(c)
+        if pedido is None:
             return Resposta(
                 texto=TEXTO_SEM_CANDIDATOS,
                 trechos=[],
@@ -74,12 +70,6 @@ class Servico:
                 versao_prompt=prompt.VERSAO_PROMPT,
             )
 
-        pedido = prompt.montar_pedido(
-            c.pergunta,
-            trechos,
-            c.data_referencia,
-            suporta_citacoes=self.backend.suporta_citacoes,
-        )
         resultado = self.backend.gerar(pedido)
         return Resposta(
             texto=resultado.texto,
@@ -97,6 +87,28 @@ class Servico:
             versao_prompt=prompt.VERSAO_PROMPT,
             uso=resultado.uso,
         )
+
+    def montar(self, c: Consulta) -> tuple[list[Trecho], Pedido | None]:
+        """Recupera e monta o pedido, SEM chamar o modelo.
+
+        Separado de `responder` para o eval poder estimar o custo de uma rodada antes de
+        gastá-lo: o pedido é exatamente o que seria enviado, e a chave dele diz se a
+        resposta já está no cache. `None` quando não há trecho — o caminho que não custa.
+        """
+        trechos = self.recuperador.recuperar(
+            c.pergunta,
+            Criterios(data_referencia=c.data_referencia, normas=c.normas),
+            k_final=c.top_k,
+        )
+        if not trechos:
+            return [], None
+        pedido = prompt.montar_pedido(
+            c.pergunta,
+            trechos,
+            c.data_referencia,
+            suporta_citacoes=self.backend.suporta_citacoes,
+        )
+        return list(trechos), pedido
 
     def _rotulo_de(self, dispositivo_id: str) -> str:
         """Rótulo humano do dispositivo CITADO, que não é o do trecho.
@@ -167,11 +179,15 @@ def construir_backend(cfg: Settings) -> LLMBackend:
     return backend
 
 
-def construir_servico(cfg: Settings) -> Servico:
-    """Monta o serviço completo, escolhendo o backend conforme `cfg.backend_llm`."""
+def construir_servico(cfg: Settings, *, threads: int | None = None) -> Servico:
+    """Monta o serviço completo, escolhendo o backend conforme `cfg.backend_llm`.
+
+    `threads` fica em None na API — ela serve requisições concorrentes e não deve tomar a
+    máquina — e é passado pelo eval, que roda em lote.
+    """
     backend = construir_backend(cfg)
     return Servico(
-        recuperador=construir_recuperador(cfg),
+        recuperador=construir_recuperador(cfg, threads=threads),
         backend=backend,
         modelo=cfg.modelo_llm,
     )

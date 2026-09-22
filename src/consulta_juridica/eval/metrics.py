@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..models import Citacao, Resposta
-from ..urn import sem_versao
+from ..urn import SEPARADOR_SEGMENTO, sem_versao
 
 
 def _normalizar(ids: Sequence[str]) -> set[str]:
@@ -53,14 +53,51 @@ def mrr(esperados: Sequence[str], recuperados: Sequence[Sequence[str]]) -> float
     return 0.0
 
 
+def cita_dentro(citado: str, esperado: str) -> bool:
+    """A citação cai no dispositivo esperado ou DENTRO dele?
+
+    O golden anota "CDC art. 49", e a citação pode vir no parágrafo único do art. 49 —
+    está correta: é texto do dispositivo esperado, citado com mais precisão do que se
+    anotou. O inverso não vale: esperar o inciso VIII e receber o caput do art. 6º é citar
+    a moldura, não o que sustenta a afirmação.
+
+    Descendente se reconhece pelo ID: o fragmento do filho é o do pai seguido de `_`.
+    O separador é o que impede `art1` de casar com `art10`.
+    """
+    c, e = sem_versao(citado), sem_versao(esperado)
+    return c == e or c.startswith(e + SEPARADOR_SEGMENTO)
+
+
 def acuracia_citacao(citacoes: Sequence[Citacao], esperados: Sequence[str]) -> float:
     """Fração das citações que apontam para um dispositivo esperado.
 
     Só é válida com backend que suporte citations nativas — ver `run.avaliar_ponta_a_ponta`.
+
+    Resposta sem citação nenhuma vale 0.0, e não "não se aplica": uma afirmação jurídica
+    sem citação é exatamente o que este sistema existe para não produzir. (Quem não deve
+    entrar na conta é a resposta que se ABSTEVE — essa é filtrada por quem chama, e medida
+    pela taxa de abstenção.)
+
+    Precisão contra a anotação, e com o limite que isso tem: uma citação correta a um
+    dispositivo que o golden não anotou conta como erro. Com 13 perguntas curadas isso é
+    raro; num golden maior, vira o ruído dominante da métrica.
     """
-    raise NotImplementedError
+    if not citacoes:
+        return 0.0
+    corretas = sum(
+        any(cita_dentro(c.dispositivo_id, e) for e in esperados) for c in citacoes
+    )
+    return corretas / len(citacoes)
 
 
 def taxa_abstencao(respostas: Sequence[Resposta]) -> float:
-    """Fração de respostas que se abstiveram."""
-    raise NotImplementedError
+    """Fração de respostas que se abstiveram.
+
+    Sozinha, é uma métrica que se ganha trapaceando: um sistema que sempre se abstém tem
+    taxa 1.0 nas perguntas que pedem abstenção. Por isso o relatório a quebra em duas —
+    abstenção correta (entre as que deviam) e indevida (entre as que não deviam) — e é o
+    par que diz alguma coisa.
+    """
+    if not respostas:
+        return 0.0
+    return sum(r.abstencao is not None for r in respostas) / len(respostas)
