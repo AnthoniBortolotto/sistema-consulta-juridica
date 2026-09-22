@@ -10,6 +10,7 @@ import sqlite3
 from collections.abc import Sequence
 from datetime import date
 from enum import StrEnum
+from typing import Final
 
 from ..models import Dispositivo, TipoDispositivo, Trecho, linha_dispositivo
 from ..store import queries
@@ -19,6 +20,11 @@ from .busca import Candidato
 #: Agrupamentos que `Nivel.SECAO` aceita como destino: vale o mais próximo, e nem toda
 #: norma usa os dois.
 _AGRUPAMENTOS_SECAO = frozenset({TipoDispositivo.SUBSECAO, TipoDispositivo.SECAO})
+
+#: Marca de dispositivo omitido pelo corte de `max_chars`. Vai em linha própria, entre
+#: dispositivos: o texto de cada um continua literal, então a citação segue conferível.
+#: Sem a marca, o modelo leria dois incisos distantes como se fossem consecutivos.
+MARCA_OMISSAO: Final = "[…]"
 
 
 class Nivel(StrEnum):
@@ -47,25 +53,46 @@ def expandir(
     O nó de destino entra sempre, mesmo revogado — ele é o que a busca escolheu, e numa
     consulta com `incluir_revogados` é justamente o que se quer ler. Quem passa pelo filtro
     de vigência são os descendentes.
+
+    **Candidatos que sobem para o mesmo destino viram UM trecho.** A fusão tem de acontecer
+    aqui, antes da montagem do texto, e não depois: dois incisos do mesmo artigo precisam
+    aparecer no MESMO texto, e fundir dois textos já montados obrigaria a jogar um fora —
+    com ele, o inciso que só estava naquele.
     """
-    urls: dict[str, str] = {}
-    trechos: list[Trecho] = []
+    alvos: dict[str, Dispositivo] = {}
+    grupos: dict[str, list[Candidato]] = {}
     for c in cands:
         alvo = _alvo(conn, c.dispositivo_id, nivel)
         if alvo is None:
             continue
+        alvos.setdefault(alvo.id, alvo)
+        grupos.setdefault(alvo.id, []).append(c)
+
+    urls: dict[str, str] = {}
+    trechos: list[Trecho] = []
+    for alvo_id, grupo in grupos.items():
+        alvo = alvos[alvo_id]
+        texto, dispositivos = _montar_texto(
+            conn,
+            alvo,
+            data_referencia,
+            max_chars,
+            descendentes=nivel is not Nivel.NENHUM,
+            obrigatorios=[c.dispositivo_id for c in grupo],
+        )
+        rerank = [c.score_rerank for c in grupo if c.score_rerank is not None]
+        fusao = max(c.score for c in grupo)
         trechos.append(
             Trecho(
                 dispositivo_id=alvo.id,
                 norma_urn=alvo.norma_urn,
                 rotulo_completo=queries.rotulo_completo(conn, alvo.id),
-                texto=_montar_texto(
-                    conn, alvo, data_referencia, max_chars, descendentes=nivel is not Nivel.NENHUM
-                ),
+                texto=texto,
+                dispositivos=dispositivos,
                 fonte_url=_fonte_url(conn, alvo.norma_urn, urls),
-                score=c.score_rerank if c.score_rerank is not None else c.score,
-                score_fusao=c.score,
-                score_rerank=c.score_rerank,
+                score=max(rerank) if rerank else fusao,
+                score_fusao=fusao,
+                score_rerank=max(rerank) if rerank else None,
             )
         )
     return trechos
@@ -96,32 +123,55 @@ def _montar_texto(
     max_chars: int,
     *,
     descendentes: bool,
-) -> str:
+    obrigatorios: Sequence[str] = (),
+) -> tuple[str, list[str]]:
     """Nó de destino mais os descendentes VIGENTES, em ordem de documento.
 
-    `descendentes=False` é o que faz `Nivel.NENHUM` significar "nenhuma expansão": sem
-    isso, o artigo recuperado pelo caput viria com os incisos pendurados, que é exatamente
-    `ChunkPorArtigo` — e o eval acharia estar medindo a recuperação crua.
+    Devolve o texto e os IDs que entraram nele. A lista não é derivável do texto depois, e é
+    ela que responde, no eval, se o dispositivo esperado chegou de fato ao modelo.
 
-    O corte por `max_chars` é sempre em fronteira de dispositivo: um artigo cortado no meio
-    de uma frase chegaria ao modelo como texto legal mutilado, e a citação que saísse dali
-    não bateria com a fonte. Se o próprio nó de destino já estoura o limite, ele vai
-    inteiro assim mesmo — nunca se corta o texto que a busca escolheu.
+    **`obrigatorios` reserva orçamento para os dispositivos que a busca achou.** Sem isso, o
+    art. 5º da CF — 78 incisos, bem mais que `max_chars` — era cortado antes do inciso
+    LXXVIII, e a pergunta `lex-01` do golden recuperava o artigo certo com o texto errado:
+    recall 0 com o dispositivo em primeiro lugar. O preenchimento do resto segue a ordem de
+    documento até estourar o limite.
+
+    O corte é sempre em fronteira de dispositivo: um artigo cortado no meio de uma frase
+    chegaria ao modelo como texto legal mutilado, e a citação que saísse dali não bateria
+    com a fonte. Se o próprio nó de destino já estoura o limite, ele vai inteiro assim
+    mesmo — nunca se corta o texto que a busca escolheu.
     """
     partes = [alvo]
     if descendentes:
         partes += queries.subarvore(conn, alvo.id, data_referencia=data_referencia)
-    linhas: list[str] = []
-    total = 0
+    partes = [p for p in partes if p.texto.strip()]
+
+    reservados = {alvo.id, *obrigatorios}
+    escolhidos = {p.id for p in partes if p.id in reservados}
+    total = sum(len(linha_dispositivo(p)) + 1 for p in partes if p.id in escolhidos)
+
     for p in partes:
-        if not p.texto.strip():
+        if p.id in escolhidos:
             continue
-        linha = linha_dispositivo(p)
-        if linhas and total + len(linha) + 1 > max_chars:
+        custo = len(linha_dispositivo(p)) + 1
+        if total + custo > max_chars:
             break
-        linhas.append(linha)
-        total += len(linha) + 1
-    return "\n".join(linhas)
+        escolhidos.add(p.id)
+        total += custo
+
+    linhas: list[str] = []
+    dentro: list[str] = []
+    omitiu = False
+    for p in partes:
+        if p.id not in escolhidos:
+            omitiu = True
+            continue
+        if omitiu and linhas:
+            linhas.append(MARCA_OMISSAO)
+        omitiu = False
+        linhas.append(linha_dispositivo(p))
+        dentro.append(p.id)
+    return "\n".join(linhas), dentro
 
 
 def _fonte_url(conn: sqlite3.Connection, norma_urn: str, cache: dict[str, str]) -> str:
@@ -138,22 +188,3 @@ def _fonte_url(conn: sqlite3.Connection, norma_urn: str, cache: dict[str, str]) 
             except ValueError:
                 cache[norma_urn] = ""
     return cache[norma_urn]
-
-
-def deduplicar(trechos: Sequence[Trecho]) -> list[Trecho]:
-    """Funde trechos repetidos: dois incisos do mesmo artigo expandem para o mesmo texto.
-
-    Preserva a ordem de entrada — que é a do ranking — e mantém o melhor score de cada
-    grupo. Reordenar aqui desfaria o trabalho do reranker.
-    """
-    por_id: dict[str, Trecho] = {}
-    for t in trechos:
-        anterior = por_id.get(t.dispositivo_id)
-        if anterior is None:
-            por_id[t.dispositivo_id] = t
-            continue
-        anterior.score = max(anterior.score, t.score)
-        anterior.score_fusao = max(anterior.score_fusao or 0.0, t.score_fusao or 0.0)
-        if t.score_rerank is not None:
-            anterior.score_rerank = max(anterior.score_rerank or t.score_rerank, t.score_rerank)
-    return list(por_id.values())

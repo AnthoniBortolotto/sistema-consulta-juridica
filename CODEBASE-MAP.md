@@ -26,7 +26,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `src/consulta_juridica/store/schema.sql` — DDL do corpus.
 - `src/consulta_juridica/store/db.py` — conexão (com modo somente-leitura) e transação.
 - `src/consulta_juridica/store/writer.py` — escrita. Só a ingestão importa.
-- `src/consulta_juridica/store/queries.py` — leitura: ancestrais, subárvore, artigo ancestral, remissões.
+- `src/consulta_juridica/store/queries.py` — leitura: ancestrais, subárvore, artigo ancestral, remissões, redações de um dispositivo. `PREDICADO_VIGENTE` mora aqui.
 
 ## Ingestão
 
@@ -42,7 +42,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `src/consulta_juridica/retrieval/filtros.py` — `Criterios` → filtro Qdrant. Onde moram os bugs de vigência.
 - `src/consulta_juridica/retrieval/busca.py` — busca híbrida com RRF server-side, `Candidato` e `hidratar` (o texto vem do SQLite, não do payload).
 - `src/consulta_juridica/retrieval/rerank.py` — cross-encoder, reranker identidade para medir a recuperação pura, e o que o modelo lê (`texto_para_rerank`).
-- `src/consulta_juridica/retrieval/expansao.py` — inciso → artigo via SQLite, reaplicando a vigência.
+- `src/consulta_juridica/retrieval/expansao.py` — inciso → artigo via SQLite, reaplicando a vigência; funde candidatos do mesmo artigo e reserva orçamento para o dispositivo que a busca achou.
 - `src/consulta_juridica/retrieval/pipeline.py` — `Recuperador`, com os modelos injetados.
 - `src/consulta_juridica/retrieval/__main__.py` — inspeção da recuperação sem gastar token.
 
@@ -65,8 +65,8 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 ## Eval
 
 - `src/consulta_juridica/eval/golden.py` — golden set anotado e sua validação contra o SQLite.
-- `src/consulta_juridica/eval/metrics.py` — recall@k, MRR, acurácia de citação, taxa de abstenção. Funções puras.
-- `src/consulta_juridica/eval/run.py` — `avaliar_recuperacao` (sem LLM) e `avaliar_ponta_a_ponta`.
+- `src/consulta_juridica/eval/metrics.py` — recall@k, MRR, acurácia de citação, taxa de abstenção. Funções puras; o ranking é uma lista de conjuntos, um por trecho.
+- `src/consulta_juridica/eval/run.py` — `avaliar_recuperacao` (sem LLM, com quebra por mecanismo) e `avaliar_ponta_a_ponta`.
 - `src/consulta_juridica/eval/__main__.py` — CLI do eval.
 
 ## Dados anotados — versionados
@@ -78,6 +78,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `tests/test_filtros.py` — vigência. Prioridade máxima: erro aqui não levanta exceção.
 - `tests/test_expansao.py` — inciso → artigo, incluindo o vazamento de vigência pelo SQLite.
 - `tests/test_recuperacao.py` — contrato da chamada ao Qdrant (o filtro nos prefetch), rerank e o `Recuperador` ponta a ponta. Pula sem Qdrant.
+- `tests/test_eval.py` — métricas puras, validação do golden e a agregação do relatório.
 - `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
 - `tests/test_indexacao.py` — coleção, drift, apagar-antes-de-inserir e os estágios. Pula sem Qdrant.
 - `tests/test_tls.py` — a verificação TLS nunca pode ser desligada.
@@ -91,7 +92,10 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 > **Implementados:** o núcleo (`models`, `config`, `errors`, `urn`, `tls`, `embedding`,
 > `vectorstore`), o `store/` inteiro, a ingestão inteira (`fontes`, `parser`, `chunking`,
 > `indexer`, `pipeline`, `__main__`), a recuperação inteira (`filtros`, `busca`, `rerank`,
-> `expansao`, `pipeline`, `__main__`) e `service.construir_recuperador`.
+> `expansao`, `pipeline`, `__main__`), `service.construir_recuperador` e o eval de
+> recuperação (`golden`, `metrics.recall_em_k`/`mrr`, `run.avaliar_recuperacao`,
+> `eval/__main__`).
 >
 > **Esqueleto** (docstring, imports e assinaturas, corpo em `NotImplementedError`):
-> `generation/`, `api/`, `eval/` e o resto de `service.py`.
+> `generation/`, `api/`, o ponta a ponta do eval (`acuracia_citacao`, `taxa_abstencao`,
+> `avaliar_ponta_a_ponta`) e o resto de `service.py`.

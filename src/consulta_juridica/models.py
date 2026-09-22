@@ -162,7 +162,14 @@ class Chunk(BaseModel):
 
 
 class Trecho(BaseModel):
-    """Unidade pós-recuperação, já expandida (inciso -> artigo) e pronta para o modelo."""
+    """Unidade pós-recuperação, já expandida (inciso -> artigo) e pronta para o modelo.
+
+    `dispositivos` lista os IDs cujo texto compõe o trecho, em ordem de documento e com o
+    alvo na frente. Existe porque a pergunta "o dispositivo esperado chegou ao modelo?" não
+    é respondida por `dispositivo_id`: com expansão até o artigo, o inciso que o golden
+    anota está DENTRO do trecho, não é ele. Sem esta lista, o eval mediria a expansão
+    achando que mede a busca.
+    """
 
     dispositivo_id: str
     norma_urn: str
@@ -172,6 +179,7 @@ class Trecho(BaseModel):
     score: float
     score_fusao: float | None = None
     score_rerank: float | None = None
+    dispositivos: list[str] = Field(default_factory=list)
 
 
 class Citacao(BaseModel):

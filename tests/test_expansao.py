@@ -14,7 +14,7 @@ from datetime import date
 
 import pytest
 
-from consulta_juridica.retrieval.expansao import Nivel, deduplicar, expandir
+from consulta_juridica.retrieval.expansao import MARCA_OMISSAO, Nivel, expandir
 
 from .conftest import URN_CDC, candidatos_de, id_cdc
 
@@ -141,26 +141,32 @@ def test_o_proprio_alvo_entra_mesmo_revogado(corpus_cdc, arvore_cdc, norma_cdc, 
 # --- deduplicação ---------------------------------------------------------------------
 
 
-def test_deduplica_incisos_do_mesmo_artigo(corpus_cdc, cands, data_ref):
+def test_incisos_do_mesmo_artigo_viram_um_trecho_so(corpus_cdc, cands, data_ref):
+    """A fusão acontece na expansão, não depois: os dois incisos precisam estar no MESMO
+    texto, e fundir dois textos já montados obrigaria a jogar um fora."""
     trechos = expandir(
         corpus_cdc, cands(INC8, INC2, INC10), nivel=Nivel.ARTIGO, data_referencia=data_ref
     )
-    assert [t.dispositivo_id for t in trechos] == [ART6, ART6, ART6]
-
-    (unico,) = deduplicar(trechos)
-    assert unico.dispositivo_id == ART6
-    assert unico.score == max(t.score for t in trechos)
+    assert [t.dispositivo_id for t in trechos] == [ART6]
+    assert {INC2, INC8, INC10} <= set(trechos[0].dispositivos)
 
 
-def test_deduplicar_preserva_a_ordem_do_ranking(corpus_cdc, cands, data_ref):
-    """Reordenar aqui desfaria o trabalho do reranker."""
-    trechos = expandir(
+def test_o_trecho_fundido_fica_com_o_melhor_score(corpus_cdc, cands, data_ref):
+    (trecho,) = expandir(
         corpus_cdc,
-        cands(INC8, INC2),
-        nivel=Nivel.NENHUM,
+        cands(INC8, INC2, scores=[0.3, 0.9]),
+        nivel=Nivel.ARTIGO,
         data_referencia=data_ref,
     )
-    assert [t.dispositivo_id for t in deduplicar([*trechos, *trechos])] == [INC8, INC2]
+    assert trecho.score_fusao == 0.9
+
+
+def test_a_ordem_dos_trechos_e_a_do_ranking(corpus_cdc, cands, data_ref):
+    """Reordenar aqui desfaria o trabalho do reranker."""
+    trechos = expandir(
+        corpus_cdc, cands(INC8, INC2), nivel=Nivel.NENHUM, data_referencia=data_ref
+    )
+    assert [t.dispositivo_id for t in trechos] == [INC8, INC2]
 
 
 # --- o que vai para o modelo ----------------------------------------------------------
@@ -197,7 +203,8 @@ def test_corte_por_max_chars_respeita_a_fronteira_do_dispositivo(corpus_cdc, can
         corpus_cdc, cands(INC8), nivel=Nivel.ARTIGO, data_referencia=data_ref, max_chars=120
     )
     assert len(cortado.texto) < len(inteiro.texto)
-    assert set(cortado.texto.splitlines()) <= set(inteiro.texto.splitlines())
+    linhas = set(cortado.texto.splitlines()) - {MARCA_OMISSAO}
+    assert linhas <= set(inteiro.texto.splitlines()), "nenhuma linha foi cortada ao meio"
 
 
 def test_o_alvo_vai_inteiro_mesmo_estourando_o_limite(corpus_cdc, cands, data_ref):
@@ -216,3 +223,42 @@ def test_nivel_nenhum_nao_pendura_os_filhos_do_artigo(corpus_cdc, cands, data_re
         corpus_cdc, cands(ART6), nivel=Nivel.NENHUM, data_referencia=data_ref
     )
     assert trecho.texto == "Art. 6º São direitos básicos do consumidor:"
+
+
+def test_trecho_registra_os_dispositivos_que_o_compoem(corpus_cdc, cands, data_ref):
+    """É esta lista que responde, no eval, se o esperado chegou ao modelo: com expansão até
+    o artigo, o inciso anotado no golden está DENTRO do trecho, não é ele."""
+    (trecho,) = expandir(
+        corpus_cdc, cands(INC8), nivel=Nivel.ARTIGO, data_referencia=data_ref
+    )
+    assert trecho.dispositivos[0] == ART6
+    assert INC8 in trecho.dispositivos
+    assert id_cdc("tit1", "cap3", "art6", "inc4") not in trecho.dispositivos
+
+
+def test_o_dispositivo_que_a_busca_achou_nunca_e_cortado(corpus_cdc, cands, data_ref):
+    """O defeito que o eval da fase 6 pegou: com `max_chars` estourado, o art. 5º da CF era
+    cortado antes do inciso LXXVIII, e `lex-01` recuperava o artigo certo com o texto
+    errado — recall 0 com o dispositivo em primeiro lugar."""
+    (cortado,) = expandir(
+        corpus_cdc, cands(INC8), nivel=Nivel.ARTIGO, data_referencia=data_ref, max_chars=120
+    )
+    assert INC8 in cortado.dispositivos
+    assert "a facilitação da defesa" in cortado.texto
+    assert INC10 not in cortado.dispositivos
+
+
+def test_o_que_foi_cortado_deixa_marca(corpus_cdc, cands, data_ref):
+    """Sem a marca, o modelo leria dois incisos distantes como consecutivos."""
+    (cortado,) = expandir(
+        corpus_cdc, cands(INC8), nivel=Nivel.ARTIGO, data_referencia=data_ref, max_chars=120
+    )
+    assert MARCA_OMISSAO in cortado.texto
+    assert cortado.texto.startswith("Art. 6º São direitos")
+
+
+def test_sem_corte_nao_ha_marca(corpus_cdc, cands, data_ref):
+    (inteiro,) = expandir(
+        corpus_cdc, cands(INC8), nivel=Nivel.ARTIGO, data_referencia=data_ref
+    )
+    assert MARCA_OMISSAO not in inteiro.texto

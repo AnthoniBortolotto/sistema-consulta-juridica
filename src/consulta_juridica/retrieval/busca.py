@@ -80,7 +80,23 @@ def buscar(
         limit=k,
         with_payload=True,
     )
-    return [_para_candidato(p) for p in resposta.points]
+    return _desempatar([_para_candidato(p) for p in resposta.points])
+
+
+def _desempatar(cands: list[Candidato]) -> list[Candidato]:
+    """Ordem estável entre candidatos com a MESMA pontuação de fusão.
+
+    O RRF soma recíprocos de posição, então empate exato é comum: na pergunta `sem-01` do
+    golden, o art. 37 da CF e o art. 43 do CC saem os dois com 0,83333. Qual deles vem
+    primeiro é decisão do servidor, e ela varia entre execuções — medido, o MRR do eval
+    oscilava entre 0,758 e 0,848 na mesma configuração, o que torna impossível atribuir uma
+    diferença a uma mudança de código.
+
+    O desempate por ID é arbitrário e é essa a questão: entre dois candidatos empatados não
+    há informação para preferir nenhum, e o que não pode acontecer é a escolha mudar
+    sozinha. Só a ordem dentro do empate muda; o ranking não.
+    """
+    return sorted(cands, key=lambda c: (-c.score, c.dispositivo_id))
 
 
 def _para_candidato(ponto) -> Candidato:

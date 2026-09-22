@@ -310,6 +310,21 @@ def com_versao(seg: str, versao: int) -> str:
     return f"{seg}{SEPARADOR_VERSAO}{versao}"
 
 
+#: Sufixo de versão em qualquer segmento de um caminho ou fragmento.
+_RE_VERSAO: Final = re.compile(re.escape(SEPARADOR_VERSAO) + r"\d+")
+
+
+def sem_versao(id_ou_caminho: str) -> str:
+    """Descarta o sufixo de redação superada: `...!art6@3` -> `...!art6`.
+
+    O golden set anota o DISPOSITIVO ("CF/88 art. 6º"), não a redação — qual redação vale
+    é justamente o que a data de referência decide. Comparar sem o sufixo é o que faz
+    `vig-01` e `vig-02` medirem a mesma pergunta em duas épocas, em vez de contarem erro
+    porque a de 2010 devolveu `art6@3`.
+    """
+    return _RE_VERSAO.sub("", id_ou_caminho)
+
+
 def montar_caminho(segmentos: Sequence[str]) -> str:
     """Segmentos da raiz até o nó -> materialized path ("adct/art5", "tit2/cap1/art5")."""
     if not segmentos:

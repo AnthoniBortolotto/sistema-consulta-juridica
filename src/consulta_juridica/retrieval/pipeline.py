@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Final
 from ..embedding import Encoder
 from ..models import Trecho
 from .busca import buscar, hidratar
-from .expansao import Nivel, deduplicar, expandir
+from .expansao import Nivel, expandir
 from .filtros import Criterios
 from .rerank import Reranker, rerankear
 
@@ -71,4 +71,4 @@ class Recuperador:
             nivel=self.nivel,
             data_referencia=criterios.data_referencia,
         )
-        return deduplicar(trechos)[:k_final]
+        return trechos[:k_final]

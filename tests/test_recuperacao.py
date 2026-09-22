@@ -276,3 +276,44 @@ def test_folga_de_dedup_e_maior_que_um():
     """Se a folga fosse 1, o `k_final` viraria teto antes da deduplicação e o modelo
     receberia menos trechos do que foi pedido."""
     assert FOLGA_DEDUP > 1
+
+
+@dataclass
+class ClienteComEmpate:
+    """Devolve dois pontos com a MESMA pontuação de fusão, na ordem que o servidor quiser."""
+
+    pontos: list
+
+    def query_points(self, colecao, **kwargs):
+        return type("Resposta", (), {"points": self.pontos})()
+
+
+def test_empate_de_fusao_tem_ordem_estavel(arvore_cdc, norma_cdc, data_ref):
+    """O RRF soma recíprocos de posição, então empate exato é comum — no golden, o art. 37
+    da CF e o art. 43 do CC saem os dois com 0,83333. Deixar o desempate para o servidor
+    fazia o MRR do eval oscilar entre 0,758 e 0,848 na MESMA configuração, o que impede
+    atribuir qualquer diferença a uma mudança de código."""
+    from qdrant_client.models import ScoredPoint
+
+    cands = candidatos_de(arvore_cdc, norma_cdc, [INC8, INC2])
+    pontos = [
+        ScoredPoint(
+            id=str(c.chunk_id), version=0, score=0.5, payload=c.payload.model_dump(mode="json")
+        )
+        for c in cands
+    ]
+    ordens = [
+        [
+            c.dispositivo_id
+            for c in buscar(
+                ClienteComEmpate(p),
+                EncoderFalso(),
+                "x",
+                Criterios(data_referencia=data_ref),
+                colecao="qualquer",
+            )
+        ]
+        for p in (pontos, list(reversed(pontos)))
+    ]
+    assert ordens[0] == ordens[1], "a ordem do servidor não pode vazar para o resultado"
+    assert ordens[0] == sorted(ordens[0])

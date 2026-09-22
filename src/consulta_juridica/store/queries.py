@@ -13,7 +13,7 @@ from datetime import date
 from typing import Final
 
 from ..models import Dispositivo, Norma, Remissao, TipoDispositivo, ordem_documento
-from ..urn import SEPARADOR_CAMINHO, rotulo_completo_de
+from ..urn import SEPARADOR_CAMINHO, SEPARADOR_VERSAO, rotulo_completo_de, sem_versao
 
 #: Predicado de vigência, em um lugar só.
 #:
@@ -124,6 +124,27 @@ def subarvore(conn: sqlite3.Connection, id: str, *, data_referencia: date) -> li
 
 def _escapar_like(texto: str) -> str:
     return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def redacoes(
+    conn: sqlite3.Connection, id: str, *, data_referencia: date | None = None
+) -> list[Dispositivo]:
+    """Todas as redações de um dispositivo: a vigente e as superadas (`art6@1`, `art6@2`).
+
+    `data_referencia` filtra pelas que estavam em vigor na data — e é por isso que esta
+    função vive aqui e não no eval: o predicado de vigência tem UMA implementação, e uma
+    segunda escrita em Python divergiria da primeira sem levantar exceção.
+
+    O sufixo de versão é aplicado ao último segmento, que é o que `ingest.parser` produz:
+    a redação superada é folha, não tem filhos para versionar em cascata.
+    """
+    base = sem_versao(id)
+    sql = f"SELECT {_COLUNAS} FROM dispositivo d WHERE (d.id = :base OR d.id LIKE :versoes)"
+    params: dict[str, str] = {"base": base, "versoes": f"{base}{SEPARADOR_VERSAO}%"}
+    if data_referencia is not None:
+        sql += f" AND {PREDICADO_VIGENTE}"
+        params["ref"] = data_referencia.isoformat()
+    return [_para_dispositivo(r) for r in conn.execute(sql + " ORDER BY d.id", params)]
 
 
 def artigo_ancestral(conn: sqlite3.Connection, id: str) -> Dispositivo | None:

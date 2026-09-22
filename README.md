@@ -151,7 +151,7 @@ recuperação, e fica fora do escopo.
 
 ## Avaliação 🚧
 
-Um golden set de perguntas com o dispositivo correto anotado à mão, medindo:
+Um golden set de 13 perguntas com o dispositivo correto anotado à mão, medindo:
 
 - **`recall@k`** da recuperação — o dispositivo certo está entre os k recuperados?
 - **acurácia de citação** — as citações da resposta apontam para o dispositivo correto?
@@ -160,7 +160,35 @@ Um golden set de perguntas com o dispositivo correto anotado à mão, medindo:
 A última importa tanto quanto as outras: um sistema jurídico que sempre responde é pior
 que um que admite lacuna.
 
-*Números a preencher conforme o eval for executado.*
+### Recuperação — medido em 2026-09-22
+
+11 perguntas (as 2 de abstenção ficam fora da média — não há dispositivo a recuperar),
+corpus de 8345 chunks, `k_busca=50`:
+
+| configuração | recall@5 | recall@10 | MRR |
+|---|---|---|---|
+| fusão RRF, sem expansão | 0,879 | 0,879 | 0,705 |
+| **+ expansão até o artigo** | **0,970** | **1,000** | 0,803 |
+| + rerank cross-encoder | 0,879 | 1,000 | **0,879** |
+
+Como ler: a expansão inciso→artigo vale +0,09 de recall@5; o cross-encoder leva 8 das 11
+perguntas para a primeira posição (MRR 0,88), mas **derruba** o recall@5 num caso — a
+consulta retroativa, onde a resposta certa é justamente o texto que ainda NÃO mencionava o
+termo perguntado. O reranker pontua por conteúdo e é cego à data.
+
+Com 11 perguntas, uma única mudança de posição move o agregado em 9 pontos. Os números
+servem para comparar configurações entre si, não como medida absoluta de qualidade — e
+cada linha acima reproduz idêntica entre execuções, o que não era verdade antes de o
+desempate da fusão virar determinístico.
+
+Reproduzir:
+
+```bash
+uv run python -m consulta_juridica.eval recuperacao --sem-rerank
+uv run python -m consulta_juridica.eval recuperacao
+```
+
+*Acurácia de citação e taxa de abstenção dependem da geração, ainda não implementada.*
 
 ---
 
@@ -187,6 +215,9 @@ Consulta:
 # inspeciona a recuperação sem gastar token
 uv run python -m consulta_juridica.retrieval "prazo para contestação" --data 2026-09-20
 
+# mede recall@k e MRR contra o golden set, também sem gastar token
+uv run python -m consulta_juridica.eval recuperacao
+
 # API + front em http://localhost:8000
 uv run uvicorn consulta_juridica.api.app:criar_app --factory --reload
 ```
@@ -212,7 +243,7 @@ avaliação de recuperação rodam sem chave — os modelos de embedding e de re
 - [x] Índice híbrido e busca com filtro de vigência
 - [ ] API de consulta com citations
 - [ ] Front de teste com painel de recuperação
-- [ ] Golden set e eval
+- [x] Golden set e eval de recuperação
 - [ ] Expansão por remissões (1 hop)
 - [ ] Ampliação do corpus de jurisprudência
 
