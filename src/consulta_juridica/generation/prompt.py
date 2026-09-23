@@ -125,14 +125,18 @@ def montar_pedido(
     )
 
 
-def render_texto_unico(pedido: Pedido) -> str:
-    """Lineariza o pedido em uma string só, para o backend CLI, que não aceita blocos.
+def render_conteudo(pedido: Pedido) -> str:
+    """Trechos e pergunta em texto corrido, SEM o sistema.
+
+    Para backend que aceita papel de sistema separado mas não blocos `document` — um modelo
+    local via chat, por exemplo. O sistema vai no papel dele; misturá-lo ao conteúdo tira
+    dele a precedência que o modelo dá às instruções de sistema.
 
     O delimitador é XML-ish porque é o que o modelo separa melhor de texto corrido, e
     porque texto de lei tem parênteses, aspas e travessões em abundância — qualquer
     delimitador leve colidiria com o próprio conteúdo.
     """
-    partes = [pedido.sistema, "", "TRECHOS DE LEI:", ""]
+    partes = ["TRECHOS DE LEI:", ""]
     for d in pedido.documentos:
         partes += [
             f'<trecho ref="{d.ref}" titulo="{d.titulo}" {d.contexto}>',
@@ -142,3 +146,8 @@ def render_texto_unico(pedido: Pedido) -> str:
         ]
     partes += ["PERGUNTA:", pedido.pergunta]
     return "\n".join(partes)
+
+
+def render_texto_unico(pedido: Pedido) -> str:
+    """Lineariza o pedido em uma string só, para o backend CLI, que não aceita blocos."""
+    return f"{pedido.sistema}\n\n{render_conteudo(pedido)}"

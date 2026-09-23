@@ -42,11 +42,26 @@ class Settings(BaseSettings):
     k_busca: int = 50
     k_prefetch: int = 150
     k_final: int = 8
+    # O cross-encoder custa ~11 s por consulta na CPU (fase 5) e, com oito trechos indo
+    # ao modelo, quase não muda o que chega a ele (fase 6: recall@5 0,970 sem, 0,879 com).
+    # Desligar é a troca certa para geração rápida; o eval mede os dois.
+    usar_rerank: bool = True
 
     # --- Geração ---
     modelo_llm: str = "claude-opus-5"
-    backend_llm: str = "api"  # "api" (citations nativas) | "cli" (assinatura, sem citations)
+    # "api" (citations nativas) | "cli" (assinatura) | "ollama" (local, sem custo).
+    # Só "api" tem citations nativas; os outros dois citam por âncora.
+    backend_llm: str = "api"
     usar_cache_llm: bool = True
+
+    # --- Geração local (backend "ollama") ---
+    ollama_url: str = "http://localhost:11434"
+    modelo_local: str = "qwen3.5:4b"
+    ollama_num_ctx: int = 16384
+    ollama_keep_alive: str = "30m"
+    # Ligado por padrão: desligado, o modelo de 4B afirmou texto posterior como vigente em
+    # 2010 (medido). Desligar troca ~60 s por ~2 s de geração, e esse risco.
+    ollama_pensar: bool = True
 
     @property
     def dir_raw(self) -> Path:

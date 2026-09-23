@@ -1,10 +1,20 @@
 # Consulta Jurídica com RAG
 
-Busca e resposta fundamentada sobre legislação brasileira, com **citação verificável** —
-cada afirmação da resposta carrega o trecho literal e o dispositivo de onde veio.
+Busca e resposta fundamentada sobre legislação brasileira, com **citação verificável** — a
+resposta traz o trecho literal de cada citação e o dispositivo de onde ele saiu, até o
+inciso.
 
-> **Status:** em desenvolvimento. O desenho está fechado e documentado abaixo; a
-> implementação está em andamento. Seções marcadas com 🚧 ainda não têm código.
+> **Status:** implementado de ponta a ponta — ingestão, busca, geração, API, front e
+> avaliação de recuperação, com números medidos. Três coisas ainda não:
+>
+> - **a geração com o Claude nunca foi executada contra a API.** O contrato está coberto
+>   por testes com dublês e o mapeamento de citação foi conferido contra o corpus real,
+>   mas a primeira chamada exige uma `ANTHROPIC_API_KEY`;
+> - por isso, os números de resposta e citação estão "a medir";
+> - a jurisprudência do STJ ficou fora do corpus.
+>
+> Sem chave, o sistema responde por um modelo local — ver
+> [Sem chave](#sem-chave-geração-local-com-ollama).
 
 ---
 
@@ -24,17 +34,19 @@ considerada.
 ## Como funciona
 
 ```
-pergunta + filtros (vigência, norma)
-      │
-      ├──► busca densa    bge-m3        ──┐
-      │                                    ├──► RRF ──► rerank ──► top-8
-      ├──► busca esparsa  BM25          ──┘          bge-reranker-v2-m3
-      │
-      │    (filtro de vigência aplicado na travessia do índice)
-      │
-      └──► Claude, com os trechos como blocos `document` + citations
-                  │
-                  └──► resposta + citações rastreáveis até o dispositivo
+pergunta + data de referência
+   │
+   ├─► busca densa   (bge-m3) ─┐
+   │                            ├─► RRF ─► rerank ─────► expansão ──────► 8 trechos
+   └─► busca esparsa (BM25)   ─┘   50     (opcional)    inciso → artigo      │
+                                   cand.  bge-reranker   no SQLite            │
+                                                                              │
+       filtro de vigência dentro de cada busca, e reaplicado na expansão      │
+                                                                              │
+   Claude, trechos como blocos `document` + citations  ◄──────────────────────┘
+   (sem chave: modelo local via Ollama, sem citations nativas)
+            │
+            └─► resposta + citações rastreáveis até o dispositivo
 ```
 
 ---
@@ -50,8 +62,13 @@ Inciso → Alínea. Partir por janela de N tokens corta artigos no meio e separa
 caput que lhe dá sentido.
 
 Aqui a unidade de indexação é o **dispositivo**, e cada chunk carrega a hierarquia inteira,
-a norma de origem e o intervalo de vigência. Um inciso recuperado é expandido para o artigo
-completo antes de ir ao modelo, porque inciso isolado frequentemente é ininteligível.
+a norma de origem e o intervalo de vigência. O texto indexado leva junto o texto dos
+ancestrais — "VI - defesa da paz;" sozinho é um vetor sem informação; com o caput, não.
+
+Um inciso recuperado é expandido para o artigo antes de ir ao modelo, porque inciso isolado
+frequentemente é ininteligível. Artigo longo demais — o art. 5º da CF tem 79 incisos — é
+cortado em fronteira de dispositivo, sempre mantendo o que a busca achou, com a omissão
+marcada por `[…]`.
 
 ### Busca híbrida, não só vetorial
 
@@ -62,16 +79,24 @@ As duas consultas abaixo são igualmente comuns e exigem mecanismos diferentes:
 | `art. 5º, LXXVIII` | léxica pura — embeddings erram em numeração |
 | `responsabilidade objetiva do Estado` | semântica |
 
-Busca densa e esparsa rodam juntas e são fundidas por Reciprocal Rank Fusion. RRF usa a
-*posição* de cada candidato, não o score bruto, porque similaridade de cosseno e score BM25
-não compartilham escala calibrada. Um reranker cross-encoder reordena o top-50 para top-8.
+Busca densa e esparsa rodam juntas e são fundidas por Reciprocal Rank Fusion, no próprio
+Qdrant. RRF usa a *posição* de cada candidato, não o score bruto, porque similaridade de
+cosseno e score BM25 não compartilham escala calibrada. Um reranker cross-encoder reordena
+os 50 candidatos da fusão — e é **opcional** (`CJ_USAR_RERANK`): custa ~11 s por consulta na
+CPU e, medido, melhora a ordem mas não o recall — o recall@5 até cai (ver
+[Avaliação](#avaliação)).
 
 ### Vigência como campo de primeira classe
 
 Responder com norma revogada como se fosse vigente é o pior defeito possível no domínio.
-Todo chunk carrega `vigencia_inicio` e `revogado_em`, e toda consulta filtra por uma data de
-referência — que é parâmetro da API, não `now()` implícito, para permitir consulta sobre o
-direito vigente à época de um fato.
+Todo chunk carrega o início de vigência e a data de revogação, e toda consulta filtra por
+uma data de referência — que é parâmetro obrigatório da API, não `now()` implícito, para
+permitir consulta sobre o direito vigente à época de um fato.
+
+Redação superada vira dispositivo próprio: perguntar sobre 2010 traz o texto de 2010. E o
+filtro é **reaplicado** quando o inciso é expandido para o artigo — o Qdrant exclui o
+inciso revogado, mas a expansão lê o artigo inteiro do SQLite, e sem o segundo filtro os
+irmãos revogados voltariam por ali.
 
 ### Fonte da verdade relacional, índice derivado
 
@@ -83,17 +108,21 @@ e remissões precisariam ser desnormalizadas no payload. Quando uma emenda alter
 a desnormalização exige reescrever todos os chunks filhos sem transação. Com índice
 derivado, reingestão é rebuild — não edição de estado mutável.
 
-*Tradeoff honesto:* isso custa um processo de build e duas cópias do texto. Em troca, a
-correção da consistência é estrutural em vez de disciplinar.
+*Tradeoff honesto:* isso custa um processo de build — reindexar o corpus leva ~52 min na
+CPU — e uma leitura a mais no SQLite por consulta, porque o texto não vai para o payload do
+Qdrant. Em troca, a correção da consistência é estrutural em vez de disciplinar.
 
 ### Citação garantida pela API, não pedida por prompt
 
-Os trechos recuperados são enviados como blocos `document` com citations habilitadas na
-Messages API. A resposta volta particionada, e os blocos citados carregam o `cited_text` e
-os índices exatos do documento de origem.
+Os trechos recuperados são enviados como blocos `document` de texto puro, com citations
+habilitadas na Messages API. A resposta volta particionada, e os blocos citados carregam o
+`cited_text` e os índices de caractere no documento de origem. O sistema traduz esses
+índices de volta ao dispositivo — a citação cai no inciso ou no parágrafo único, não no
+artigo inteiro — e confere que o texto citado está mesmo no trecho enviado.
 
 A alternativa comum — instruir o modelo a citar e confiar na obediência — falha
-silenciosamente e de forma difícil de detectar em escala.
+silenciosamente e de forma difícil de detectar em escala. É o que os backends sem chave
+fazem, e por isso eles não entram na avaliação de citação.
 
 ### Sem framework de orquestração na v1
 
@@ -112,11 +141,13 @@ inspecionado durante a depuração — o prompt exato que foi enviado.
 | Fonte da verdade | SQLite |
 | Índice vetorial | Qdrant — vetores nomeados denso + esparso |
 | Embeddings | `BAAI/bge-m3` (local) |
-| Reranker | `BAAI/bge-reranker-v2-m3` (local) |
-| Geração | Claude via SDK `anthropic`, com citations |
+| Busca esparsa | BM25 (`Qdrant/bm25` via fastembed, com stemmer em português) |
+| Reranker | `BAAI/bge-reranker-v2-m3` (local, opcional) |
+| Geração | Claude (`claude-opus-5`) via SDK `anthropic`, com citations nativas · sem chave: `qwen3.5:4b` via Ollama, ou o Claude Code CLI |
 | Front de teste | Vue 3 por CDN, servido como estático |
 
-Embeddings e reranking rodam localmente — indexar o corpus inteiro não custa nada em API.
+Embeddings e reranking rodam localmente, na CPU — indexar o corpus inteiro não custa nada
+em API.
 
 ---
 
@@ -124,32 +155,36 @@ Embeddings e reranking rodam localmente — indexar o corpus inteiro não custa 
 
 | Fonte | O que entra | Volume |
 |---|---|---|
-| [Planalto](https://www.planalto.gov.br/) | CF/88, Código Civil, CDC | ~2,9 MB · ~8.000 dispositivos |
-| [Dados abertos do STJ](https://dadosabertos.web.stj.jus.br/) | Precedentes qualificados (teses firmadas) | 2,5 MB · 4.728 registros |
+| [Planalto](https://www.planalto.gov.br/) | CF/88 (com ADCT), Código Civil, CDC | ~4 MB de HTML · 8.894 dispositivos · 8.345 chunks |
 
 **Particularidades do Planalto**, descobertas testando as fontes: o servidor bloqueia
 requisições sem `User-Agent` de navegador; as páginas são `cp1252` sem declarar `charset`;
-não há tags semânticas, então a hierarquia vem de âncoras nomeadas (`<a name="art5lxxviii">`)
-quando existem, e de padrão textual quando não. E o mais importante: **`<strike>` marca
-redação superada, não revogação** — o art. 6º da CF aparece três vezes na página, duas
-riscadas e a vigente fora. Isso faz da página um histórico temporal utilizável, e é o que
-viabiliza o filtro de vigência; um parser que ignore o `<strike>` indexa versões
-conflitantes do mesmo artigo como direito vigente.
+não há tags semânticas, e as âncoras nomeadas não servem de guia — quando um artigo tem
+várias redações, a âncora principal aponta para uma já superada. A hierarquia vem do padrão
+textual (cabeçalho em linha própria, "§ 1º", inciso romano com travessão), e a âncora só
+corrobora.
+
+E o mais importante: **`<strike>` marca redação superada, não revogação** — o art. 6º da CF
+aparece quatro vezes na página, três riscadas e a vigente. Cada redação superada vira um
+dispositivo próprio, com a vigência de quando valia, e é isso que viabiliza a consulta
+retroativa. Um parser que ignore o `<strike>` indexa versões conflitantes do mesmo artigo
+como direito vigente.
 
 **Sobre o LexML:** a API SRU está atrás de desafio anti-bot do Senado e devolve HTML de
 interstício em vez de XML. Descartado como fonte automatizável.
 
-**Sobre jurisprudência:** não existe API pública de busca de inteiro teor do STF ou do STJ.
-A [API do DataJud](https://www.cnj.jus.br/sistemas/datajud/api-publica/) (CNJ) expõe
-metadados de processos, não o texto das decisões. A escolha aqui são os **precedentes
-qualificados** do STJ: teses vinculantes, curtas, canônicas, e com um campo
-`referenciaLegislativa` que liga cada tese ao dispositivo que ela interpreta — o que permite
-cruzar os dois corpora. Inteiro teor de acórdãos é problema de aquisição de dados, não de
-recuperação, e fica fora do escopo.
+**Sobre jurisprudência:** não há nenhuma no corpus hoje. Não existe API pública de busca de
+inteiro teor do STF ou do STJ; a [API do DataJud](https://www.cnj.jus.br/sistemas/datajud/api-publica/)
+(CNJ) expõe metadados de processos, não o texto das decisões. O candidato escolhido são os
+**precedentes qualificados** do [STJ](https://dadosabertos.web.stj.jus.br/) — 4.728 registros
+de teses vinculantes, curtas, canônicas, com um campo `referenciaLegislativa` que liga cada tese ao
+dispositivo que ela interpreta, o que permitiria cruzar os dois corpora. Ficou para depois:
+da máquina de desenvolvimento, o portal do STJ não respondeu. Inteiro teor de acórdãos é
+problema de aquisição de dados, não de recuperação, e fica fora do escopo.
 
 ---
 
-## Avaliação 🚧
+## Avaliação
 
 Um golden set de 13 perguntas com o dispositivo correto anotado à mão, medindo:
 
@@ -184,6 +219,7 @@ desempate da fusão virar determinístico.
 Reproduzir:
 
 ```bash
+uv run python -m consulta_juridica.eval validar              # confere o golden contra o corpus
 uv run python -m consulta_juridica.eval recuperacao --sem-rerank
 uv run python -m consulta_juridica.eval recuperacao
 ```
@@ -212,18 +248,18 @@ uv run python -m consulta_juridica.eval e2e              # estima o custo e sai
 uv run python -m consulta_juridica.eval e2e --confirmar  # executa (requer ANTHROPIC_API_KEY)
 ```
 
-O eval recusa o backend de assinatura (`CJ_BACKEND_LLM=cli`): sem citations nativas, as
-citações dele são âncoras que o modelo pode ou não emitir, e um número medido assim não
+O eval recusa os backends sem citations nativas (`CJ_BACKEND_LLM=ollama` e `cli`): as
+citações deles são âncoras que o modelo pode ou não emitir, e um número medido assim não
 significa nada.
 
 ---
 
-## Rodando localmente 🚧
+## Rodando localmente
 
 ```bash
 uv sync
-cp .env.example .env     # preencha ANTHROPIC_API_KEY se for gerar respostas
-docker compose up -d     # Qdrant local
+cp .env.example .env     # preencha ANTHROPIC_API_KEY se for gerar respostas com o Claude
+docker compose up -d     # Qdrant local (e o Ollama, para gerar sem chave)
 ```
 
 Ingestão, em três estágios independentes — baixar depende de rede, parsear não, indexar
@@ -232,8 +268,11 @@ carrega modelos:
 ```bash
 uv run python -m consulta_juridica.ingest baixar
 uv run python -m consulta_juridica.ingest ingerir     # bruto -> SQLite
-uv run python -m consulta_juridica.ingest reindexar   # SQLite -> Qdrant
+uv run python -m consulta_juridica.ingest reindexar   # SQLite -> Qdrant, ~52 min na CPU
+uv run python -m consulta_juridica.ingest status      # o que já está no SQLite e no Qdrant
 ```
+
+Na primeira execução, os modelos de embedding e de rerank descem do Hugging Face: ~6,5 GB.
 
 Consulta:
 
@@ -248,13 +287,45 @@ uv run python -m consulta_juridica.eval recuperacao
 uv run uvicorn consulta_juridica.api.app:criar_app --factory --reload
 ```
 
-`ANTHROPIC_API_KEY` só é necessária para a etapa de geração. Ingestão, indexação e
-avaliação de recuperação rodam sem chave — os modelos de embedding e de rerank são locais.
-O cliente da Anthropic é construído sem validar a chave, então a falta dela só aparece na
-primeira chamada, como erro de autenticação.
+A recuperação leva ~13 s por consulta com o rerank e ~0,5 s sem ele, medido na CPU.
 
-Sem chave, `CJ_BACKEND_LLM=cli` usa o Claude Code por subprocess (`claude -p`). Serve para
-ver o sistema responder; **não** produz citações nativas nem números de avaliação.
+`ANTHROPIC_API_KEY` só é necessária para a etapa de geração com o Claude. Ingestão,
+indexação e avaliação de recuperação rodam sem chave — os modelos de embedding e de rerank
+são locais. O cliente da Anthropic é construído sem validar a chave, então a falta dela só
+aparece na primeira chamada, e a API responde 503 dizendo o que fazer.
+
+### Sem chave: geração local com Ollama
+
+O `docker-compose.yml` também sobe um Ollama com a GPU passada ao container. Com ele, o
+sistema responde de ponta a ponta sem chave e sem custo:
+
+```bash
+docker compose up -d                                  # Qdrant + Ollama
+docker compose exec ollama ollama pull qwen3.5:4b     # ~3,4 GB, uma vez
+docker compose exec ollama ollama ps                  # PROCESSOR tem de dizer "100% GPU"
+
+# no .env: CJ_BACKEND_LLM=ollama e CJ_USAR_RERANK=false
+uv run uvicorn consulta_juridica.api.app:criar_app --factory
+```
+
+Medido numa RTX 3060 Laptop (6 GB), com recuperação sem rerank:
+
+| | raciocínio desligado | raciocínio ligado (padrão) |
+|---|---|---|
+| tempo por resposta, pela API | 4–9 s | 47–96 s |
+| `vig-02`: transporte era direito social em 2010? | ❌ afirma que o art. 6º de 2010 lista o transporte — não lista | ✅ nota a ausência na lista de 2010 (mas sob a marca de abstenção, e isso é uma resposta: "não") |
+| `abs-01`: prazo de recurso no processo civil (não está no corpus) | recusa, mas sem a marca: o sistema não detecta | ✅ recusa, detectada |
+| `sem-02`: devolver compra feita pela internet | ✅ art. 49 do CDC | ❌ recusa: lê o "especialmente" do art. 49 como taxativo |
+
+**Nenhum dos dois modos é confiável com um modelo de 4B**, e quatro perguntas são amostra
+pequena. O padrão é o raciocínio ligado porque a falha dele é recusar demais; a do modo
+rápido é apresentar texto posterior como direito vigente na data — o pior defeito possível
+neste domínio. Um modelo maior não cabe inteiro nos 6 GB (o `qwen3.5:9b` tem 6,6 GB).
+
+O backend local não tem citations nativas: as citações são âncoras `[D1]` que apontam o
+trecho, não um intervalo dentro dele, e o eval ponta a ponta o recusa. Serve para ver o
+sistema responder, não para medir citação. (`CJ_BACKEND_LLM=cli` faz o mesmo pelo Claude
+Code, `claude -p`, consumindo a assinatura.)
 
 ---
 
@@ -262,7 +333,7 @@ ver o sistema responder; **não** produz citações nativas nem números de aval
 
 - **Não é consulta jurídica.** É ferramenta de pesquisa. As respostas precisam ser
   conferidas contra a fonte oficial antes de qualquer uso profissional.
-- Cobertura de jurisprudência é estreita, pelos motivos descritos acima.
+- **Não há jurisprudência no corpus**, só legislação federal: CF/88, Código Civil e CDC.
 - Direito sumulado e entendimento consolidado mudam; o corpus é um retrato datado.
 - Sem cobertura de legislação estadual ou municipal.
 
@@ -278,11 +349,12 @@ resposta juridicamente certa hoje é "só a do devedor de alimentos", e com apen
 legislação no corpus o sistema não tem como saber disso. A resposta sai fiel à fonte e
 incompleta como direito.
 
-Não há correção possível sem jurisprudência no corpus, e mascarar o caso com uma regra
-especial seria esconder exatamente o que ele mostra: **um sistema que só lê lei responde o
-que a lei diz, não o que os tribunais decidiram sobre ela.** Por isso a pergunta fica no
-golden, com o esperado apontando para o dispositivo — o que se mede é se a citação está
-certa, não se o direito está completo.
+Não há correção possível sem jurisprudência no corpus — e nem os precedentes do STJ
+resolveriam, porque a súmula é do STF. Mascarar o caso com uma regra especial seria
+esconder exatamente o que ele mostra: **um sistema que só lê lei responde o que a lei diz,
+não o que os tribunais decidiram sobre ela.** Por isso a pergunta fica no golden, com o
+esperado apontando para o dispositivo — o que se mede é se a citação está certa, não se o
+direito está completo.
 
 ### Vigência com granularidade de ano
 
@@ -307,19 +379,22 @@ aparece — mas não garante que o certo venha em primeiro.
 
 "Na forma do art. 37, § 6º" é resolvido; "nos termos da Lei nº 8.078" não é, porque exigiria
 um catálogo de toda a legislação citada. A remissão entre normas se perde, e nenhuma é
-inventada.
+inventada. E as remissões resolvidas ainda não entram na busca: ficam gravadas no SQLite
+para a expansão por remissão do roadmap.
 
 ---
 
 ## Roadmap
 
-- [x] Ingestão com parser estrutural (CF/88 primeiro)
+- [x] Ingestão com parser estrutural — CF/88, Código Civil e CDC
 - [x] Índice híbrido e busca com filtro de vigência
-- [x] Geração com citations nativas
+- [x] Geração com citations nativas — implementada, ainda sem execução contra a API
+- [x] Geração local sem chave, via Ollama
 - [x] API de consulta + front de teste com painel de recuperação
 - [x] Golden set e eval de recuperação
+- [ ] Primeira rodada do eval ponta a ponta — requer `ANTHROPIC_API_KEY`
+- [ ] Jurisprudência: precedentes qualificados do STJ, cruzados com a legislação
 - [ ] Expansão por remissões (1 hop)
-- [ ] Ampliação do corpus de jurisprudência
 
 ---
 

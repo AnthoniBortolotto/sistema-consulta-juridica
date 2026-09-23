@@ -51,8 +51,9 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `src/consulta_juridica/generation/backend.py` — `LLMBackend`, `Pedido`, `BlocoDocumento`, e a chave de cache do pedido. Decisão sync-não-async registrada aqui.
 - `src/consulta_juridica/generation/claude_api.py` — Messages API com citations nativas; documento de texto puro, `char_location`. Leia antes de mexer na forma da requisição.
 - `src/consulta_juridica/generation/claude_cli.py` — `claude -p` por subprocess, sem citations.
+- `src/consulta_juridica/generation/ollama.py` — modelo local via Ollama (serviço do `docker-compose.yml`), sem custo e sem citations. Leia o docstring antes de mexer no raciocínio ou no `num_ctx`.
 - `src/consulta_juridica/generation/cache.py` — decorator de cache em disco sobre qualquer backend.
-- `src/consulta_juridica/generation/prompt.py` — todo o texto de instrução, `VERSAO_PROMPT` e a marca de abstenção. O corpo do documento é o trecho cru: ver a invariante no docstring.
+- `src/consulta_juridica/generation/prompt.py` — todo o texto de instrução, `VERSAO_PROMPT`, a marca de abstenção e as linearizações para backend sem blocos. O corpo do documento é o trecho cru: ver a invariante no docstring.
 - `src/consulta_juridica/generation/citacoes.py` — citação bruta → `Citacao` de domínio: deslocamento de caractere → dispositivo, e o que é descartado.
 
 ## API
@@ -82,6 +83,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 - `tests/test_eval_e2e.py` — acurácia de citação, as três taxas de abstenção e o custo que o cache não cobra duas vezes.
 - `tests/test_geracao.py` — prompt, cache, resolução de citação e os dois backends, com dublês. Não chama o Claude.
 - `tests/test_api.py` — contrato HTTP, injeção do serviço e o estático. Serviço dublê, sem carregar modelo.
+- `tests/test_ollama.py` — backend local com transporte falso: contexto fixado, corte silencioso do prompt, raciocínio na identidade do cache.
 - `tests/test_chunking.py` — granularidade, texto indexado vs citável, vigência no chunk por artigo.
 - `tests/test_indexacao.py` — coleção, drift, apagar-antes-de-inserir e os estágios. Pula sem Qdrant.
 - `tests/test_tls.py` — a verificação TLS nunca pode ser desligada.
@@ -96,7 +98,7 @@ Do que todo o resto depende. Mexer aqui repercute em tudo.
 > `vectorstore`), o `store/` inteiro, a ingestão inteira (`fontes`, `parser`, `chunking`,
 > `indexer`, `pipeline`, `__main__`), a recuperação inteira (`filtros`, `busca`, `rerank`,
 > `expansao`, `pipeline`, `__main__`), a geração inteira (`prompt`, `claude_api`,
-> `claude_cli`, `cache`, `citacoes`), o `service.py` inteiro, a API inteira (`schemas`,
+> `claude_cli`, `ollama`, `cache`, `citacoes`), o `service.py` inteiro, a API inteira (`schemas`,
 > `deps`, `app`, `web/index.html`) e o eval inteiro (`golden`, `metrics`, `run`,
 > `eval/__main__`).
 >

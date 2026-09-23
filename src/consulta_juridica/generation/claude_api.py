@@ -147,12 +147,12 @@ def _traduzir_erros():
             raise
         raise BackendIndisponivel(
             "nenhuma credencial da Anthropic encontrada: defina ANTHROPIC_API_KEY (ou use "
-            "CJ_BACKEND_LLM=cli, sem citations nativas)"
+            "CJ_BACKEND_LLM=ollama, local e sem custo, mas sem citations nativas)"
         ) from e
     except AuthenticationError as e:
         raise BackendIndisponivel(
             "a Anthropic recusou a credencial: defina ANTHROPIC_API_KEY (ou use "
-            "CJ_BACKEND_LLM=cli, sem citations nativas)"
+            "CJ_BACKEND_LLM=ollama, local e sem custo, mas sem citations nativas)"
         ) from e
     except PermissionDeniedError as e:
         raise BackendIndisponivel(f"credencial sem permissão para {e.__class__.__name__}") from e

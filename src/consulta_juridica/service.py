@@ -124,7 +124,7 @@ class Servico:
 
 
 def construir_recuperador(
-    cfg: Settings, *, com_rerank: bool = True, threads: int | None = None
+    cfg: Settings, *, com_rerank: bool | None = None, threads: int | None = None
 ) -> Recuperador:
     """Monta o recuperador. Carrega os modelos — chame uma vez por processo.
 
@@ -133,7 +133,8 @@ def construir_recuperador(
     CLI no fim do processo.
 
     `com_rerank=False` troca o cross-encoder pela identidade, que é como o eval mede a
-    recuperação pura sem esperar os segundos de carga do modelo.
+    recuperação pura sem esperar os segundos de carga do modelo. `None` segue
+    `cfg.usar_rerank` — o eval passa explícito porque mede os dois lados.
     """
     from .embedding import construir_encoder
     from .retrieval.expansao import Nivel
@@ -145,7 +146,9 @@ def construir_recuperador(
         conn=db.conectar(cfg.caminho_sqlite, somente_leitura=True),
         client=cliente(cfg),
         encoder=construir_encoder(cfg, threads=threads),
-        reranker=construir_reranker(cfg, com_rerank=com_rerank),
+        reranker=construir_reranker(
+            cfg, com_rerank=cfg.usar_rerank if com_rerank is None else com_rerank
+        ),
         colecao=cfg.colecao,
         nivel=Nivel(cfg.nivel_expansao),
         k_prefetch=cfg.k_prefetch,
@@ -169,9 +172,19 @@ def construir_backend(cfg: Settings) -> LLMBackend:
         from .generation.claude_cli import BackendClaudeCLI
 
         backend = BackendClaudeCLI()
+    elif cfg.backend_llm == "ollama":
+        from .generation.ollama import BackendOllama
+
+        backend = BackendOllama(
+            cfg.modelo_local,
+            url=cfg.ollama_url,
+            num_ctx=cfg.ollama_num_ctx,
+            keep_alive=cfg.ollama_keep_alive,
+            pensar=cfg.ollama_pensar,
+        )
     else:
         raise ValueError(
-            f"backend_llm desconhecido: {cfg.backend_llm!r} (há: api, cli)"
+            f"backend_llm desconhecido: {cfg.backend_llm!r} (há: api, cli, ollama)"
         )
 
     if cfg.usar_cache_llm:
@@ -189,5 +202,7 @@ def construir_servico(cfg: Settings, *, threads: int | None = None) -> Servico:
     return Servico(
         recuperador=construir_recuperador(cfg, threads=threads),
         backend=backend,
-        modelo=cfg.modelo_llm,
+        # O modelo configurado para o backend em uso: com o local ligado, dizer
+        # "claude-opus-5" aqui mentiria para a estimativa de custo e para o relatório.
+        modelo=cfg.modelo_local if cfg.backend_llm == "ollama" else cfg.modelo_llm,
     )

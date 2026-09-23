@@ -8,3 +8,31 @@ services:
       - "6334:6334" # gRPC
     volumes:
       - ./qdrant_storage:/qdrant/storage
+
+  # Geração local sem chave de API: o backend `ollama` fala com este serviço por HTTP.
+  # Também dependência de desenvolvimento — a mesma categoria do Qdrant, não deploy.
+  ollama:
+    image: ollama/ollama:0.34.3
+    ports:
+      - "11434:11434"
+    volumes:
+      # Volume do Docker, NÃO pasta do repositório. Medido: com bind mount do Windows, cada
+      # vez que o modelo saía da memória (5 min parado) a recarga levava ~100 s, porque o
+      # disco do Windows visto de dentro da VM do WSL2 lê a ~33 MB/s.
+      - ollama_modelos:/root/.ollama
+    # Sem esta reserva o container roda na CPU SEM avisar: nada falha, só fica muito mais
+    # lento. Conferir com `docker compose exec ollama ollama ps` — a coluna PROCESSOR tem
+    # de dizer "100% GPU".
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  ollama_modelos:
+    # Nome fixo: reaproveita o volume se já existe, cria se não — e sem o prefixo do
+    # projeto, para sobreviver a uma renomeação da pasta.
+    name: ollama_modelos
