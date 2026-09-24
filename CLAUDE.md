@@ -31,11 +31,12 @@ Se uma entrada precisa de mais de duas linhas, o lugar dela é um docstring.
 | Índice vetorial | **Qdrant** — decisão do usuário, já debatida contra pgvector |
 | Fonte da verdade | SQLite; o Qdrant é índice **derivado e reconstruível** |
 | Embeddings / reranker | `bge-m3` e `bge-reranker-v2-m3`, locais via `sentence-transformers` |
-| Geração | SDK `anthropic` com **citations nativas** (blocos `document`) |
+| Geração | **Local via Ollama** (`qwen3.5:4b`, container com GPU), sem chave de API. O backend do Claude com citations nativas fica no código, fora do caminho padrão |
 | Front | Vue 3 por CDN, sem build, servido como estático pelo FastAPI |
 
-Ainda em aberto: LangChain na v1 (recomendação registrada: não usar) e o backend de
-assinatura vs API key.
+Decididas depois: sem LangChain; e geração local sem chave como padrão — que troca a
+citação literal garantida pela API por âncoras pedidas no prompt. Essa perda é conhecida e
+está no README; não é para ser escondida.
 
 ---
 
@@ -96,10 +97,10 @@ Estas seis são a diferença entre o projeto funcionar e parecer funcionar:
 
 ---
 
-## Antes de escrever código que chama o Claude
+## Antes de mexer no backend do Claude
 
-Carregue a skill `claude-api` e leia `python/claude-api/README.md` antes da primeira
-chamada. Model IDs, formato de `thinking` e a API de citations mudaram recentemente — não
+Só vale para `generation/claude_api.py`, que está fora do caminho padrão. Carregue a skill
+`claude-api` e leia `python/claude-api/README.md` antes de alterar a chamada. Model IDs, formato de `thinking` e a API de citations mudaram recentemente — não
 escrever de memória.
 
 O prompt enviado precisa ser inspecionável: em RAG, a maior parte da depuração é descobrir

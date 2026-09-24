@@ -42,16 +42,18 @@ class Settings(BaseSettings):
     k_busca: int = 50
     k_prefetch: int = 150
     k_final: int = 8
-    # O cross-encoder custa ~11 s por consulta na CPU (fase 5) e, com oito trechos indo
-    # ao modelo, quase não muda o que chega a ele (fase 6: recall@5 0,970 sem, 0,879 com).
-    # Desligar é a troca certa para geração rápida; o eval mede os dois.
-    usar_rerank: bool = True
+    # Desligado por padrão. O cross-encoder custa ~11 s por consulta na CPU (fase 5) e,
+    # com oito trechos indo ao modelo, quase não muda o que chega a ele (fase 6: recall@5
+    # 0,970 sem, 0,879 com). O eval de recuperação passa explícito e mede os dois lados.
+    usar_rerank: bool = False
 
     # --- Geração ---
+    # "ollama" (local, sem chave — o padrão) | "api" (Claude com citations nativas, pede
+    # ANTHROPIC_API_KEY) | "cli" (claude -p pela assinatura). Só "api" tem citations
+    # nativas; os outros dois citam por âncora e o eval ponta a ponta os recusa.
+    backend_llm: str = "ollama"
+    # Só para o backend "api".
     modelo_llm: str = "claude-opus-5"
-    # "api" (citations nativas) | "cli" (assinatura) | "ollama" (local, sem custo).
-    # Só "api" tem citations nativas; os outros dois citam por âncora.
-    backend_llm: str = "api"
     usar_cache_llm: bool = True
 
     # --- Geração local (backend "ollama") ---

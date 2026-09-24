@@ -60,7 +60,7 @@ class BackendClaudeCLI(LLMBackend):
         except FileNotFoundError as e:
             raise BackendIndisponivel(
                 f"executável {self.executavel!r} não encontrado; instale o Claude Code ou "
-                f"use CJ_BACKEND_LLM=api"
+                f"volte ao padrão, CJ_BACKEND_LLM=ollama"
             ) from e
         except subprocess.TimeoutExpired as e:
             raise BackendIndisponivel(
